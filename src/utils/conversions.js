@@ -1,593 +1,651 @@
-// ─────────────────────────────────────────────────────────────
-//  GridPoint Conversion Utilities
-//  Supports: Lat/Lon, Maidenhead Grid, OS Grid (OSGB36),
-//            WAB Square, Google Plus Codes
-// ─────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════
+// GRIDPOINT APP — Coordinate Conversion Library
+// Ported from GridPoint web app (resnikov/gridpoint)
+// All functions are pure JS — fully offline capable
+// ═══════════════════════════════════════════════════════════════
 
-// ── Haversine / Bearing ───────────────────────────────────────
-
-export function haversineDistance(lat1, lon1, lat2, lon2) {
-  const R = 6371000; // metres
-  const φ1 = (lat1 * Math.PI) / 180;
-  const φ2 = (lat2 * Math.PI) / 180;
-  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(Δφ / 2) ** 2 +
-    Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+// ── Decimal Degrees ────────────────────────────────────────────
+export function toDMS(deg, isLat) {
+  const abs = Math.abs(deg);
+  const d = Math.floor(abs);
+  const mFull = (abs - d) * 60;
+  const m = Math.floor(mFull);
+  const s = ((mFull - m) * 60).toFixed(2);
+  const dir = isLat ? (deg >= 0 ? 'N' : 'S') : (deg >= 0 ? 'E' : 'W');
+  return `${d}° ${m}' ${s}" ${dir}`;
 }
 
-export function bearingTo(lat1, lon1, lat2, lon2) {
-  const φ1 = (lat1 * Math.PI) / 180;
-  const φ2 = (lat2 * Math.PI) / 180;
-  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
-  const y = Math.sin(Δλ) * Math.cos(φ2);
-  const x =
-    Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
-  return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+export function toDM(deg, isLat) {
+  const abs = Math.abs(deg);
+  const d = Math.floor(abs);
+  const m = ((abs - d) * 60).toFixed(4);
+  const dir = isLat ? (deg >= 0 ? 'N' : 'S') : (deg >= 0 ? 'E' : 'W');
+  return `${d}° ${m}' ${dir}`;
 }
 
-export function formatDistance(metres) {
-  if (metres < 1000) return `${Math.round(metres)} m`;
-  return `${(metres / 1000).toFixed(1)} km`;
+// ── Maidenhead Grid Locator ────────────────────────────────────
+export function toMaidenhead(lat, lon, chars = 6) {
+  const A = 'A'.charCodeAt(0);
+  const l = lon + 180;
+  const la = lat + 90;
+  const f1 = String.fromCharCode(A + Math.floor(l / 20));
+  const f2 = String.fromCharCode(A + Math.floor(la / 10));
+  const f3 = String(Math.floor((l % 20) / 2));
+  const f4 = String(Math.floor(la % 10));
+  const lonSubStep = 2 / 24;
+  const latSubStep = 1 / 24;
+  const f5 = String.fromCharCode(A + Math.floor((l % 2) / lonSubStep));
+  const f6 = String.fromCharCode(A + Math.floor((la % 1) / latSubStep));
+  if (chars <= 6) return `${f1}${f2}${f3}${f4}${f5}${f6}`.toUpperCase();
+  const lonExtStep = lonSubStep / 10;
+  const latExtStep = latSubStep / 10;
+  const e1 = Math.floor((l % lonSubStep) / lonExtStep);
+  const e2 = Math.floor((la % latSubStep) / latExtStep);
+  return `${f1}${f2}${f3}${f4}${f5}${f6}${e1}${e2}`.toUpperCase();
 }
 
-export function formatBearing(deg) {
-  const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
-  return `${Math.round(deg)}° ${dirs[Math.round(deg / 22.5) % 16]}`;
-}
-
-// ── Lat/Lon helpers ───────────────────────────────────────────
-
-export function parseDMS(str) {
-  // Accepts: 51.5074, -0.1278  |  51°30'26.6"N 0°07'40.1"W  |  51 30 26.6 N 0 7 40 1 W
-  str = str.trim();
-
-  // Decimal degrees (simple)
-  const dd = str.match(/^(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)$/);
-  if (dd) return { lat: parseFloat(dd[1]), lon: parseFloat(dd[2]) };
-
-  // DMS with symbols
-  const dms = str.match(
-    /(\d+)[°\s]+(\d+)['\s]+(\d+\.?\d*)["″\s]*([NS])[,\s]+(\d+)[°\s]+(\d+)['\s]+(\d+\.?\d*)["″\s]*([EW])/i
-  );
-  if (dms) {
-    let lat = parseInt(dms[1]) + parseInt(dms[2]) / 60 + parseFloat(dms[3]) / 3600;
-    let lon = parseInt(dms[5]) + parseInt(dms[6]) / 60 + parseFloat(dms[7]) / 3600;
-    if (dms[4].toUpperCase() === 'S') lat = -lat;
-    if (dms[8].toUpperCase() === 'W') lon = -lon;
-    return { lat, lon };
-  }
-
-  return null;
-}
-
-export function latLonToDegreesMinutes(lat, lon) {
-  const fmt = (val, pos, neg) => {
-    const d = Math.abs(val);
-    const deg = Math.floor(d);
-    const min = ((d - deg) * 60).toFixed(4);
-    return `${deg}° ${min}' ${val >= 0 ? pos : neg}`;
-  };
-  return `${fmt(lat, 'N', 'S')}  ${fmt(lon, 'E', 'W')}`;
-}
-
-export function latLonToDMS(lat, lon) {
-  const fmt = (val, pos, neg) => {
-    const d = Math.abs(val);
-    const deg = Math.floor(d);
-    const m = Math.floor((d - deg) * 60);
-    const s = (((d - deg) * 60 - m) * 60).toFixed(2);
-    return `${deg}° ${m}' ${s}" ${val >= 0 ? pos : neg}`;
-  };
-  return `${fmt(lat, 'N', 'S')}  ${fmt(lon, 'E', 'W')}`;
-}
-
-// ── Maidenhead Grid ───────────────────────────────────────────
-
-export function latLonToMaidenhead(lat, lon, precision = 6) {
-  lon = ((lon + 180) % 360);
-  lat = lat + 90;
-
-  let grid = '';
-  grid += String.fromCharCode(65 + Math.floor(lon / 20));
-  grid += String.fromCharCode(65 + Math.floor(lat / 10));
-  grid += String(Math.floor((lon % 20) / 2));
-  grid += String(Math.floor(lat % 10));
-
-  if (precision >= 6) {
-    grid += String.fromCharCode(65 + Math.floor((lon % 2) / (2 / 24)));
-    grid += String.fromCharCode(65 + Math.floor((lat % 1) / (1 / 24)));
-  }
-
-  return grid.toUpperCase();
-}
-
-export function maidenheadToLatLon(grid) {
-  grid = grid.toUpperCase().trim();
-  if (!/^[A-R]{2}[0-9]{2}([A-X]{2})?$/.test(grid)) return null;
-
-  let lon = (grid.charCodeAt(0) - 65) * 20 - 180;
-  let lat = (grid.charCodeAt(1) - 65) * 10 - 90;
+export function fromMaidenhead(grid) {
+  grid = grid.trim().toUpperCase();
+  if (grid.length < 4) throw new Error('Grid must be at least 4 characters');
+  const A = 'A'.charCodeAt(0);
+  const lonSubStep = 2 / 24;
+  const latSubStep = 1 / 24;
+  const lonExtStep = lonSubStep / 10;
+  const latExtStep = latSubStep / 10;
+  let lon = (grid.charCodeAt(0) - A) * 20 - 180;
+  let lat = (grid.charCodeAt(1) - A) * 10 - 90;
   lon += parseInt(grid[2]) * 2;
-  lat += parseInt(grid[3]);
-
+  lat += parseInt(grid[3]) * 1;
   if (grid.length >= 6) {
-    lon += ((grid.charCodeAt(4) - 65) * 2) / 24;
-    lat += (grid.charCodeAt(5) - 65) / 24;
-    // Centre of subsquare
-    lon += 1 / 24;
-    lat += 0.5 / 24;
+    lon += (grid.charCodeAt(4) - A) * lonSubStep;
+    lat += (grid.charCodeAt(5) - A) * latSubStep;
+    if (grid.length >= 8) {
+      const e1 = parseInt(grid[6]);
+      const e2 = parseInt(grid[7]);
+      if (!isNaN(e1) && !isNaN(e2)) {
+        lon += e1 * lonExtStep + lonExtStep / 2;
+        lat += e2 * latExtStep + latExtStep / 2;
+      } else {
+        lon += lonSubStep / 2;
+        lat += latSubStep / 2;
+      }
+    } else {
+      lon += lonSubStep / 2;
+      lat += latSubStep / 2;
+    }
   } else {
     lon += 1;
     lat += 0.5;
   }
-
   return { lat, lon };
 }
 
-export function isMaidenhead(str) {
-  return /^[A-R]{2}[0-9]{2}([A-X]{2})?$/i.test(str.trim());
+// ── OS National Grid ───────────────────────────────────────────
+// OSGB36 <-> WGS84 Helmert approximation, accurate to ~5m
+function wgs84ToOSGB36(lat, lon) {
+  const φ = lat * Math.PI / 180;
+  const λ = lon * Math.PI / 180;
+  const a = 6378137.000, b = 6356752.3141;
+  const e2 = 1 - (b * b) / (a * a);
+  const ν = a / Math.sqrt(1 - e2 * Math.sin(φ) ** 2);
+  const x = ν * Math.cos(φ) * Math.cos(λ);
+  const y = ν * Math.cos(φ) * Math.sin(λ);
+  const z = ν * (1 - e2) * Math.sin(φ);
+  const tx = -446.448, ty = 125.157, tz = -542.060;
+  const rx = -0.1502 / 206265, ry = -0.2470 / 206265, rz = -0.8421 / 206265;
+  const s = 20.4894e-6;
+  const x2 = tx + x * (1 + s) + (-rz) * y + ry * z;
+  const y2 = ty + rz * x + y * (1 + s) + (-rx) * z;
+  const z2 = tz + (-ry) * x + rx * y + z * (1 + s);
+  const a2 = 6377563.396, b2 = 6356256.910;
+  const e2_2 = 1 - (b2 * b2) / (a2 * a2);
+  const p = Math.sqrt(x2 * x2 + y2 * y2);
+  let φ2 = Math.atan2(z2, p * (1 - e2_2));
+  for (let i = 0; i < 10; i++) {
+    const ν2 = a2 / Math.sqrt(1 - e2_2 * Math.sin(φ2) ** 2);
+    φ2 = Math.atan2(z2 + e2_2 * ν2 * Math.sin(φ2), p);
+  }
+  const λ2 = Math.atan2(y2, x2);
+  return { lat: φ2 * 180 / Math.PI, lon: λ2 * 180 / Math.PI };
 }
 
-// ── OS Grid (OSGB36) ──────────────────────────────────────────
-// Using Helmert transform WGS84 <-> OSGB36
-
-const a = 6378137.0;
-const b = 6356752.3142;
-const F0 = 0.9996012717;
-const lat0 = (49 * Math.PI) / 180;
-const lon0 = (-2 * Math.PI) / 180;
-const N0 = -100000;
-const E0 = 400000;
-const e2 = 1 - (b * b) / (a * a);
-const n = (a - b) / (a + b);
-
-function latLonToOSGB(latDeg, lonDeg) {
-  // Helmert: WGS84 -> OSGB36
-  const sinLat = Math.sin((latDeg * Math.PI) / 180);
-  const cosLat = Math.cos((latDeg * Math.PI) / 180);
-  const sinLon = Math.sin((lonDeg * Math.PI) / 180);
-  const cosLon = Math.cos((lonDeg * Math.PI) / 180);
-
-  // Approximate Helmert transform
-  const H = 0;
-  const x = (a / Math.sqrt(1 - e2 * sinLat ** 2) + H) * cosLat * cosLon;
-  const y = (a / Math.sqrt(1 - e2 * sinLat ** 2) + H) * cosLat * sinLon;
-  const z = ((a * (1 - e2)) / Math.sqrt(1 - e2 * sinLat ** 2) + H) * sinLat;
-
-  // Helmert transform params WGS84 -> OSGB36
-  const tx = -446.448, ty = 125.157, tz = -542.06;
-  const rx = (-0.1502 / 3600 * Math.PI) / 180;
-  const ry = (-0.247 / 3600 * Math.PI) / 180;
-  const rz = (-0.8421 / 3600 * Math.PI) / 180;
-  const s = 20.4894e-6;
-
-  const x2 = tx + x * (1 + s) - y * rz + z * ry;
-  const y2 = ty + x * rz + y * (1 + s) - z * rx;
-  const z2 = tz - x * ry + y * rx + z * (1 + s);
-
-  // Airy 1830 ellipsoid
-  const aA = 6377563.396, bA = 6356256.909;
-  const e2A = 1 - (bA * bA) / (aA * aA);
-
-  const p = Math.sqrt(x2 ** 2 + y2 ** 2);
-  let latR = Math.atan2(z2, p * (1 - e2A));
-  for (let i = 0; i < 10; i++) {
-    const v = aA / Math.sqrt(1 - e2A * Math.sin(latR) ** 2);
-    latR = Math.atan2(z2 + e2A * v * Math.sin(latR), p);
-  }
-  const lonR = Math.atan2(y2, x2);
-
-  // Project to National Grid
-  const sinLatR = Math.sin(latR);
-  const cosLatR = Math.cos(latR);
-  const v2 = aA * F0 / Math.sqrt(1 - e2A * sinLatR ** 2);
-  const rho = aA * F0 * (1 - e2A) / Math.pow(1 - e2A * sinLatR ** 2, 1.5);
-  const eta2 = v2 / rho - 1;
-
-  const M = calcM(latR, aA, bA);
-
+export function latLonToOSEN(lat, lon) {
+  const osgb = wgs84ToOSGB36(lat, lon);
+  const φ = osgb.lat * Math.PI / 180;
+  const λ = osgb.lon * Math.PI / 180;
+  const a = 6377563.396, b = 6356256.910;
+  const F0 = 0.9996012717;
+  const φ0 = 49 * Math.PI / 180, λ0 = -2 * Math.PI / 180;
+  const N0 = -100000, E0 = 400000;
+  const e2 = 1 - (b / a) ** 2;
+  const n = (a - b) / (a + b);
+  const ν = a * F0 / Math.sqrt(1 - e2 * Math.sin(φ) ** 2);
+  const ρ = a * F0 * (1 - e2) / Math.pow(1 - e2 * Math.sin(φ) ** 2, 1.5);
+  const η2 = ν / ρ - 1;
+  const M = b * F0 * (
+    (1 + n + 5 / 4 * n * n + 5 / 4 * n ** 3) * (φ - φ0)
+    - (3 * n + 3 * n * n + 21 / 8 * n ** 3) * Math.sin(φ - φ0) * Math.cos(φ + φ0)
+    + (15 / 8 * n * n + 15 / 8 * n ** 3) * Math.sin(2 * (φ - φ0)) * Math.cos(2 * (φ + φ0))
+    - 35 / 24 * n ** 3 * Math.sin(3 * (φ - φ0)) * Math.cos(3 * (φ + φ0))
+  );
   const I = M + N0;
-  const II = (v2 / 2) * sinLatR * cosLatR;
-  const III = (v2 / 24) * sinLatR * cosLatR ** 3 * (5 - Math.tan(latR) ** 2 + 9 * eta2);
-  const IIIA = (v2 / 720) * sinLatR * cosLatR ** 5 * (61 - 58 * Math.tan(latR) ** 2 + Math.tan(latR) ** 4);
-  const IV = v2 * cosLatR;
-  const V = (v2 / 6) * cosLatR ** 3 * (v2 / rho - Math.tan(latR) ** 2);
-  const VI = (v2 / 120) * cosLatR ** 5 * (5 - 18 * Math.tan(latR) ** 2 + Math.tan(latR) ** 4 + 14 * eta2 - 58 * Math.tan(latR) ** 2 * eta2);
-
-  const dLon = lonR - lon0;
-  const N = I + II * dLon ** 2 + III * dLon ** 4 + IIIA * dLon ** 6;
-  const E = E0 + IV * dLon + V * dLon ** 3 + VI * dLon ** 5;
-
+  const II = ν / 2 * Math.sin(φ) * Math.cos(φ);
+  const III = ν / 24 * Math.sin(φ) * Math.cos(φ) ** 3 * (5 - Math.tan(φ) ** 2 + 9 * η2);
+  const IIIA = ν / 720 * Math.sin(φ) * Math.cos(φ) ** 5 * (61 - 58 * Math.tan(φ) ** 2 + Math.tan(φ) ** 4);
+  const IV = ν * Math.cos(φ);
+  const V = ν / 6 * Math.cos(φ) ** 3 * (ν / ρ - Math.tan(φ) ** 2);
+  const VI = ν / 120 * Math.cos(φ) ** 5 * (5 - 18 * Math.tan(φ) ** 2 + Math.tan(φ) ** 4 + 14 * η2 - 58 * Math.tan(φ) ** 2 * η2);
+  const Δλ = λ - λ0;
+  const N = I + II * Δλ ** 2 + III * Δλ ** 4 + IIIA * Δλ ** 6;
+  const E = E0 + IV * Δλ + V * Δλ ** 3 + VI * Δλ ** 5;
   return { E: Math.round(E), N: Math.round(N) };
 }
 
-function calcM(lat, aA, bA) {
-  const n1 = (aA - bA) / (aA + bA);
-  const n2 = n1 ** 2;
-  const n3 = n1 ** 3;
-  const dLat = lat - lat0;
-  const sLat = lat + lat0;
-  return bA * F0 * (
-    (1 + n1 + 1.25 * n2 + 1.25 * n3) * dLat -
-    (3 * n1 + 3 * n2 + 2.625 * n3) * Math.sin(dLat) * Math.cos(sLat) +
-    (1.875 * n2 + 1.875 * n3) * Math.sin(2 * dLat) * Math.cos(2 * sLat) -
-    (35 / 24) * n3 * Math.sin(3 * dLat) * Math.cos(3 * sLat)
-  );
+export function latLonToOSEN_approx(lat, lon) {
+  try {
+    return latLonToOSEN(lat, lon);
+  } catch (e) {
+    return null;
+  }
 }
 
-export function latLonToOSGridRef(lat, lon) {
-  const { E, N } = latLonToOSGB(lat, lon);
-
-  // The OS letter grid origin is at E=-1000000, N=-500000
-  // relative to the OSGB projection false origin
-  const gridSquares = ['VWXYZ', 'QRSTU', 'LMNOP', 'FGHJK', 'ABCDE'];
-  const adjE = E + 1000000;
-  const adjN = N + 500000;
-
-  const major_e = Math.floor(adjE / 500000);
-  const major_n = Math.floor(adjN / 500000);
-  const letter500 = gridSquares[major_n]?.[major_e];
-  if (!letter500) return null;
-
-  const sub_e = Math.floor((adjE % 500000) / 100000);
-  const sub_n = Math.floor((adjN % 500000) / 100000);
-  const letter100 = gridSquares[sub_n]?.[sub_e];
-  if (!letter100) return null;
-
-  const eRem = String(E % 100000).padStart(5, '0');
-  const nRem = String(N % 100000).padStart(5, '0');
-
-  return `${letter500}${letter100} ${eRem.slice(0, 3)} ${nRem.slice(0, 3)}`;
-}
-
-export function osGridRefToLatLon(ref) {
-  ref = ref.toUpperCase().replace(/\s+/g, '');
-  const match = ref.match(/^([A-Z]{2})(\d{6}|\d{8}|\d{10})$/);
-  if (!match) return null;
-
-  const letters = match[1];
-  const digits = match[2];
-  const half = digits.length / 2;
-  let E = parseInt(digits.slice(0, half));
-  let N = parseInt(digits.slice(half));
-
-  // Pad to 5 digits
-  const factor = Math.pow(10, 5 - half);
-  E *= factor;
-  N *= factor;
-
-  const gridSquares = [
-    'VWXYZ', 'QRSTU', 'LMNOP', 'FGHJK', 'ABCDE'
+function osENToGridRef(E, N) {
+  const sq100 = [
+    ['V', 'W', 'X', 'Y', 'Z'],
+    ['Q', 'R', 'S', 'T', 'U'],
+    ['L', 'M', 'N', 'O', 'P'],
+    ['F', 'G', 'H', 'J', 'K'],
+    ['A', 'B', 'C', 'D', 'E'],
   ];
-  let major_e = -1, major_n = -1, sub_e = -1, sub_n = -1;
-
-  for (let row = 0; row < 5; row++) {
-    const c1 = gridSquares[row].indexOf(letters[0]);
-    if (c1 >= 0) { major_n = row; major_e = c1; break; }
-  }
-  for (let row = 0; row < 5; row++) {
-    const c2 = gridSquares[row].indexOf(letters[1]);
-    if (c2 >= 0) { sub_n = row; sub_e = c2; break; }
-  }
-  if (major_e < 0 || sub_e < 0) return null;
-
-  // Apply the origin offset: letter grid origin is at E=-1000000, N=-500000
-  const totalE = major_e * 500000 + sub_e * 100000 + E - 1000000;
-  const totalN = major_n * 500000 + sub_n * 100000 + N - 500000;
-
-  return osgbToLatLon(totalE, totalN);
+  const L500t = [['S', 'T'], ['N', 'O'], ['H', 'I']];
+  const e500 = Math.floor(E / 500000);
+  const n500 = Math.floor(N / 500000);
+  const e100 = Math.floor((E % 500000) / 100000);
+  const n100 = Math.floor((N % 500000) / 100000);
+  const L500 = L500t[n500]?.[e500] || '?';
+  const L100 = sq100[n100]?.[e100] || '?';
+  const eR = String(E % 100000).padStart(5, '0');
+  const nR = String(N % 100000).padStart(5, '0');
+  return `${L500}${L100} ${eR} ${nR}`;
 }
 
-function osgbToLatLon(E, N) {
-  const aA = 6377563.396, bA = 6356256.909;
-  const e2A = 1 - (bA * bA) / (aA * aA);
+export function toOSGridRef(lat, lon) {
+  const { E, N } = latLonToOSEN(lat, lon);
+  if (E < 0 || E > 700000 || N < 0 || N > 1300000) return 'Outside GB';
+  return osENToGridRef(E, N);
+}
 
-  let lat = lat0;
-  let M = 0;
+function osGridRefToEN(gridRef) {
+  gridRef = gridRef.replace(/\s+/g, '').toUpperCase();
+  const letters = gridRef.match(/^([A-Z]{2})/);
+  if (!letters) throw new Error('Invalid OS Grid Reference');
+  const L500 = letters[1][0];
+  const L100 = letters[1][1];
+  const nums = gridRef.slice(2);
+  if (nums.length < 4 || nums.length % 2 !== 0) throw new Error('Invalid OS Grid Reference digits');
+  const half = nums.length / 2;
+  const eStr = nums.slice(0, half).padEnd(5, '0').slice(0, 5);
+  const nStr = nums.slice(half).padEnd(5, '0').slice(0, 5);
+  const e100 = parseInt(eStr);
+  const n100 = parseInt(nStr);
+  const bases500 = { S: { e: 0, n: 0 }, T: { e: 1, n: 0 }, N: { e: 0, n: 1 }, O: { e: 1, n: 1 }, H: { e: 0, n: 2 } };
+  const base = bases500[L500];
+  if (!base) throw new Error('Unrecognised 500km square: ' + L500);
+  const sq100 = {
+    V: { e: 0, n: 0 }, W: { e: 1, n: 0 }, X: { e: 2, n: 0 }, Y: { e: 3, n: 0 }, Z: { e: 4, n: 0 },
+    Q: { e: 0, n: 1 }, R: { e: 1, n: 1 }, S: { e: 2, n: 1 }, T: { e: 3, n: 1 }, U: { e: 4, n: 1 },
+    L: { e: 0, n: 2 }, M: { e: 1, n: 2 }, N: { e: 2, n: 2 }, O: { e: 3, n: 2 }, P: { e: 4, n: 2 },
+    F: { e: 0, n: 3 }, G: { e: 1, n: 3 }, H: { e: 2, n: 3 }, J: { e: 3, n: 3 }, K: { e: 4, n: 3 },
+    A: { e: 0, n: 4 }, B: { e: 1, n: 4 }, C: { e: 2, n: 4 }, D: { e: 3, n: 4 }, E: { e: 4, n: 4 },
+  };
+  const b100 = sq100[L100];
+  if (!b100) throw new Error('Unrecognised 100km square: ' + L100);
+  const E = base.e * 500000 + b100.e * 100000 + e100;
+  const N = base.n * 500000 + b100.n * 100000 + n100;
+  return { E, N };
+}
+
+export function osENToLatLon(E, N) {
+  const a = 6377563.396, b = 6356256.910;
+  const F0 = 0.9996012717;
+  const φ0 = 49 * Math.PI / 180, λ0 = -2 * Math.PI / 180;
+  const N0 = -100000, E0 = 400000;
+  const e2 = 1 - (b / a) ** 2;
+  const n = (a - b) / (a + b);
+  const Ep = E - E0;
+  let φ = φ0, M = 0;
   do {
-    lat = (N - N0 - M) / (aA * F0) + lat;
-    M = calcM(lat, aA, bA);
-  } while (Math.abs(N - N0 - M) >= 0.001);
-
-  const sinLat = Math.sin(lat);
-  const cosLat = Math.cos(lat);
-  const tanLat = Math.tan(lat);
-
-  const v2 = aA * F0 / Math.sqrt(1 - e2A * sinLat ** 2);
-  const rho = aA * F0 * (1 - e2A) / Math.pow(1 - e2A * sinLat ** 2, 1.5);
-  const eta2 = v2 / rho - 1;
-
-  const VII = tanLat / (2 * rho * v2);
-  const VIII = tanLat / (24 * rho * v2 ** 3) * (5 + 3 * tanLat ** 2 + eta2 - 9 * tanLat ** 2 * eta2);
-  const IX = tanLat / (720 * rho * v2 ** 5) * (61 + 90 * tanLat ** 2 + 45 * tanLat ** 4);
-  const X = 1 / (v2 * cosLat);
-  const XI = 1 / (6 * v2 ** 3 * cosLat) * (v2 / rho + 2 * tanLat ** 2);
-  const XII = 1 / (120 * v2 ** 5 * cosLat) * (5 + 28 * tanLat ** 2 + 24 * tanLat ** 4);
-  const XIIA = 1 / (5040 * v2 ** 7 * cosLat) * (61 + 662 * tanLat ** 2 + 1320 * tanLat ** 4 + 720 * tanLat ** 6);
-
-  const dE = E - E0;
-
-  const latOSGB = lat - VII * dE ** 2 + VIII * dE ** 4 - IX * dE ** 6;
-  const lonOSGB = lon0 + X * dE - XI * dE ** 3 + XII * dE ** 5 - XIIA * dE ** 7;
-
-  // Helmert: OSGB36 -> WGS84
-  const sinLatO = Math.sin(latOSGB);
-  const cosLatO = Math.cos(latOSGB);
-  const vO = aA / Math.sqrt(1 - e2A * sinLatO ** 2);
-
-  const H = 0;
-  const x = (vO + H) * cosLatO * Math.cos(lonOSGB);
-  const y = (vO + H) * cosLatO * Math.sin(lonOSGB);
-  const z = (vO * (1 - e2A) + H) * sinLatO;
-
-  const tx = 446.448, ty = -125.157, tz = 542.06;
-  const rx = (0.1502 / 3600 * Math.PI) / 180;
-  const ry = (0.247 / 3600 * Math.PI) / 180;
-  const rz = (0.8421 / 3600 * Math.PI) / 180;
+    φ = (N - N0 - M) / (a * F0) + φ;
+    M = b * F0 * (
+      (1 + n + 5 / 4 * n ** 2 + 5 / 4 * n ** 3) * (φ - φ0)
+      - (3 * n + 3 * n ** 2 + 21 / 8 * n ** 3) * Math.sin(φ - φ0) * Math.cos(φ + φ0)
+      + (15 / 8 * n ** 2 + 15 / 8 * n ** 3) * Math.sin(2 * (φ - φ0)) * Math.cos(2 * (φ + φ0))
+      - 35 / 24 * n ** 3 * Math.sin(3 * (φ - φ0)) * Math.cos(3 * (φ + φ0))
+    );
+  } while (Math.abs(N - N0 - M) >= 0.00001);
+  const ν = a * F0 / Math.sqrt(1 - e2 * Math.sin(φ) ** 2);
+  const ρ = a * F0 * (1 - e2) / (1 - e2 * Math.sin(φ) ** 2) ** 1.5;
+  const η2 = ν / ρ - 1;
+  const T = Math.tan(φ) ** 2;
+  const VII = Math.tan(φ) / (2 * ρ * ν);
+  const VIII = Math.tan(φ) / (24 * ρ * ν ** 3) * (5 + 3 * T + η2 - 9 * T * η2);
+  const IX = Math.tan(φ) / (720 * ρ * ν ** 5) * (61 + 90 * T + 45 * T ** 2);
+  const X = 1 / (ν * Math.cos(φ));
+  const XI = 1 / (6 * ν ** 3 * Math.cos(φ)) * (ν / ρ + 2 * T);
+  const XII = 1 / (120 * ν ** 5 * Math.cos(φ)) * (5 + 28 * T + 24 * T ** 2);
+  const XIIA = 1 / (5040 * ν ** 7 * Math.cos(φ)) * (61 + 662 * T + 1320 * T ** 2 + 720 * T ** 3);
+  const lat_osgb = (φ - VII * Ep ** 2 + VIII * Ep ** 4 - IX * Ep ** 6) * 180 / Math.PI;
+  const lon_osgb = (λ0 + X * Ep - XI * Ep ** 3 + XII * Ep ** 5 - XIIA * Ep ** 7) * 180 / Math.PI;
+  // Inverse Helmert back to WGS84
+  const φr = lat_osgb * Math.PI / 180, λr = lon_osgb * Math.PI / 180;
+  const a2 = 6377563.396, b2 = 6356256.910;
+  const e2_2 = 1 - (b2 / a2) ** 2;
+  const νr = a2 / Math.sqrt(1 - e2_2 * Math.sin(φr) ** 2);
+  const xr = νr * Math.cos(φr) * Math.cos(λr);
+  const yr = νr * Math.cos(φr) * Math.sin(λr);
+  const zr = νr * (1 - e2_2) * Math.sin(φr);
+  const tx = 446.448, ty = -125.157, tz = 542.060;
+  const rx = 0.1502 / 206265, ry = 0.2470 / 206265, rz = 0.8421 / 206265;
   const s = -20.4894e-6;
-
-  const x2 = tx + x * (1 + s) - y * rz + z * ry;
-  const y2 = ty + x * rz + y * (1 + s) - z * rx;
-  const z2 = tz - x * ry + y * rx + z * (1 + s);
-
-  const e2W = 1 - (b * b) / (a * a);
+  const x2 = tx + xr * (1 + s) + (-rz) * yr + ry * zr;
+  const y2 = ty + rz * xr + yr * (1 + s) + (-rx) * zr;
+  const z2 = tz + (-ry) * xr + rx * yr + zr * (1 + s);
+  const a3 = 6378137.0, e2_3 = 0.00669437999014;
   const p = Math.sqrt(x2 ** 2 + y2 ** 2);
-  let latW = Math.atan2(z2, p * (1 - e2W));
+  let φ3 = Math.atan2(z2, p * (1 - e2_3));
   for (let i = 0; i < 10; i++) {
-    const vW = a / Math.sqrt(1 - e2W * Math.sin(latW) ** 2);
-    latW = Math.atan2(z2 + e2W * vW * Math.sin(latW), p);
+    const ν3 = a3 / Math.sqrt(1 - e2_3 * Math.sin(φ3) ** 2);
+    φ3 = Math.atan2(z2 + e2_3 * ν3 * Math.sin(φ3), p);
   }
-  const lonW = Math.atan2(y2, x2);
-
-  return { lat: (latW * 180) / Math.PI, lon: (lonW * 180) / Math.PI };
+  return { lat: φ3 * 180 / Math.PI, lon: Math.atan2(y2, x2) * 180 / Math.PI };
 }
 
-export function isOSGridRef(str) {
-  return /^[A-Z]{2}\s?\d{6}(\d{2})?$/i.test(str.trim().replace(/\s+/g, ' '));
+export function fromOSGridRef(gridRef) {
+  const { E, N } = osGridRefToEN(gridRef);
+  return osENToLatLon(E, N);
 }
 
-// ── WAB Square ────────────────────────────────────────────────
-
-export function latLonToWAB(lat, lon) {
-  const { E, N } = latLonToOSGB(lat, lon);
-
-  // Same origin offset as OS grid lettering
-  const gridSquares = ['VWXYZ', 'QRSTU', 'LMNOP', 'FGHJK', 'ABCDE'];
-  const adjE = E + 1000000;
-  const adjN = N + 500000;
-
-  const major_e = Math.floor(adjE / 500000);
-  const major_n = Math.floor(adjN / 500000);
-  const letter500 = gridSquares[major_n]?.[major_e];
-  if (!letter500) return null;
-
-  const sub_e = Math.floor((adjE % 500000) / 100000);
-  const sub_n = Math.floor((adjN % 500000) / 100000);
-  const letter100 = gridSquares[sub_n]?.[sub_e];
-  if (!letter100) return null;
-
-  // WAB 10km square digits within the 100km square
-  const eKm = Math.floor((E % 100000) / 10000);
-  const nKm = Math.floor((N % 100000) / 10000);
-
-  return `${letter500}${letter100}${eKm}${nKm}`;
+// ── WAB Square ─────────────────────────────────────────────────
+export function toWAB(lat, lon) {
+  const { E, N } = latLonToOSEN(lat, lon);
+  if (E < 0 || E > 700000 || N < 0 || N > 1300000) return 'Outside GB';
+  const ref = osENToGridRef(E, N);
+  const letters = ref.match(/^([A-Z]{2})/)[1];
+  const nums = ref.replace(/[A-Z\s]/g, '');
+  const half = Math.floor(nums.length / 2);
+  return `${letters}${nums[0]}${nums[half]}`;
 }
 
-export function isWAB(str) {
-  return /^[A-Z]{2}\d{2}$/i.test(str.trim());
+export function fromWAB(wab) {
+  wab = wab.trim().toUpperCase();
+  if (!/^[A-Z]{2}\d{2}$/.test(wab)) throw new Error('WAB format: 2 letters + 2 digits, e.g. SP45');
+  const letters = wab.slice(0, 2);
+  const e1 = wab[2];
+  const n1 = wab[3];
+  const fakeRef = `${letters} ${e1}5000 ${n1}5000`;
+  return fromOSGridRef(fakeRef);
 }
 
-// ── Plus Codes (Open Location Code) ──────────────────────────
-// Ported from Google's OLC reference implementation
-
-const CODE_ALPHABET = '23456789CFGHJMPQRVWX';
-const ENCODING_BASE = 20;
-const PAIR_CODE_LENGTH = 10;
-const CODE_PRECISION_NORMAL = 10;
-const GRID_ROWS = 5;
-const GRID_COLS = 4;
-const MIN_DIGIT_COUNT = 2;
-const MAX_DIGIT_COUNT = 15;
-const PADDING_CHARACTER = '0';
-const SEPARATOR = '+';
-const SEPARATOR_POSITION = 8;
-const LAT_MAX = 90;
-const LON_MAX = 180;
-
-function isValidOLC(code) {
-  if (!code) return false;
-  code = code.toUpperCase();
-  const sep = code.indexOf(SEPARATOR);
-  if (sep < 0 || sep !== code.lastIndexOf(SEPARATOR)) return false;
-  if (sep % 2 !== 0 || sep > SEPARATOR_POSITION) return false;
-
-  const padStart = code.indexOf(PADDING_CHARACTER);
-  if (padStart >= 0) {
-    if (padStart === 0) return false;
-    const padMatch = code.match(new RegExp(`[${PADDING_CHARACTER}]+`));
-    if (!padMatch || padMatch[0].length % 2 !== 0) return false;
-    if (code.slice(code.indexOf(PADDING_CHARACTER) + padMatch[0].length) !== SEPARATOR) return false;
+// ── CQ Zone ────────────────────────────────────────────────────
+export function calcCQZone(lat, lon) {
+  if (lon < -180) lon += 360;
+  if (lon > 180) lon -= 360;
+  let zone;
+  if (lat >= 75) {
+    zone = lon < -10 ? 1 : lon < 40 ? 18 : lon < 100 ? 23 : lon < 160 ? 26 : 31;
+  } else if (lat >= 50) {
+    if (lon < -100) zone = 1;
+    else if (lon < -60) zone = 2;
+    else if (lon < 40) zone = 14;
+    else if (lon < 60) zone = 21;
+    else if (lon < 100) zone = 17;
+    else if (lon < 140) zone = 19;
+    else zone = 25;
+  } else if (lat >= 40) {
+    if (lon < -130) zone = 3;
+    else if (lon < -90) zone = 4;
+    else if (lon < -60) zone = 5;
+    else if (lon < 40) zone = 14;
+    else if (lon < 60) zone = 21;
+    else if (lon < 100) zone = 17;
+    else if (lon < 140) zone = 24;
+    else zone = 27;
+  } else if (lat >= 20) {
+    if (lon < -110) zone = 6;
+    else if (lon < -84) zone = 7;
+    else if (lon < -60) zone = 8;
+    else if (lon < -10) zone = 9;
+    else if (lon < 20) zone = 33;
+    else if (lon < 40) zone = 34;
+    else if (lon < 80) zone = 21;
+    else if (lon < 140) zone = 26;
+    else zone = 27;
+  } else if (lat >= 0) {
+    if (lon < -80) zone = 7;
+    else if (lon < -60) zone = 8;
+    else if (lon < -40) zone = 9;
+    else if (lon < -20) zone = 11;
+    else if (lon < 20) zone = 35;
+    else if (lon < 40) zone = 34;
+    else if (lon < 60) zone = 39;
+    else if (lon < 120) zone = 26;
+    else zone = 28;
+  } else if (lat >= -20) {
+    if (lon < -60) zone = 10;
+    else if (lon < -40) zone = 11;
+    else if (lon < -20) zone = 36;
+    else if (lon < 20) zone = 38;
+    else if (lon < 40) zone = 37;
+    else if (lon < 80) zone = 39;
+    else if (lon < 140) zone = 29;
+    else zone = 28;
+  } else if (lat >= -40) {
+    if (lon < -60) zone = 13;
+    else if (lon < 20) zone = 38;
+    else if (lon < 60) zone = 38;
+    else if (lon < 100) zone = 39;
+    else zone = 29;
+  } else {
+    zone = lon < 0 ? 13 : 29;
   }
+  return zone || '?';
+}
 
-  for (const c of code.replace(SEPARATOR, '').replace(new RegExp(`\\${PADDING_CHARACTER}`, 'g'), '')) {
-    if (CODE_ALPHABET.indexOf(c) < 0) return false;
+// ── ITU Zone ───────────────────────────────────────────────────
+export function calcITUZone(lat, lon) {
+  if (lon < -180) lon += 360;
+  if (lon > 180) lon -= 360;
+  let zone;
+  if (lat >= 75) {
+    if (lon < -140) zone = 1;
+    else if (lon < -100) zone = 2;
+    else if (lon < -60) zone = 75;
+    else if (lon < 20) zone = 18;
+    else if (lon < 80) zone = 30;
+    else zone = 40;
+  } else if (lat >= 40) {
+    if (lon < -140) zone = 1;
+    else if (lon < -120) zone = 2;
+    else if (lon < -100) zone = 3;
+    else if (lon < -80) zone = 4;
+    else if (lon < -60) zone = 5;
+    else if (lon < -40) zone = 8;
+    else if (lon < -20) zone = 9;
+    else if (lon < 0) zone = 18;
+    else if (lon < 20) zone = 28;
+    else if (lon < 40) zone = 29;
+    else if (lon < 60) zone = 30;
+    else if (lon < 80) zone = 31;
+    else if (lon < 100) zone = 32;
+    else if (lon < 120) zone = 33;
+    else if (lon < 140) zone = 43;
+    else if (lon < 160) zone = 44;
+    else zone = 45;
+  } else if (lat >= 20) {
+    if (lon < -100) zone = 6;
+    else if (lon < -80) zone = 7;
+    else if (lon < -60) zone = 10;
+    else if (lon < -40) zone = 11;
+    else if (lon < -20) zone = 12;
+    else if (lon < 0) zone = 46;
+    else if (lon < 20) zone = 47;
+    else if (lon < 40) zone = 48;
+    else if (lon < 60) zone = 21;
+    else if (lon < 80) zone = 22;
+    else if (lon < 100) zone = 41;
+    else if (lon < 120) zone = 50;
+    else if (lon < 140) zone = 54;
+    else if (lon < 160) zone = 57;
+    else zone = 62;
+  } else if (lat >= 0) {
+    if (lon < -80) zone = 7;
+    else if (lon < -60) zone = 10;
+    else if (lon < -40) zone = 13;
+    else if (lon < -20) zone = 16;
+    else if (lon < 0) zone = 47;
+    else if (lon < 20) zone = 52;
+    else if (lon < 40) zone = 53;
+    else if (lon < 60) zone = 39;
+    else if (lon < 80) zone = 41;
+    else if (lon < 100) zone = 51;
+    else if (lon < 120) zone = 54;
+    else if (lon < 140) zone = 57;
+    else zone = 62;
+  } else if (lat >= -40) {
+    if (lon < -60) zone = 14;
+    else if (lon < -20) zone = 16;
+    else if (lon < 20) zone = 52;
+    else if (lon < 60) zone = 53;
+    else if (lon < 100) zone = 39;
+    else if (lon < 140) zone = 57;
+    else zone = 60;
+  } else {
+    if (lon < -60) zone = 16;
+    else if (lon < 20) zone = 38;
+    else if (lon < 100) zone = 68;
+    else zone = 60;
   }
-  return true;
+  return zone || '?';
 }
 
-export function isPlusCode(str) {
-  str = str.trim().toUpperCase();
-  if (isValidOLC(str)) return true;
-  // Short code with reference
-  return /^[23456789CFGHJMPQRVWX]{2,8}\+[23456789CFGHJMPQRVWX]{0,6}$/i.test(str);
-}
+// ── Plus Codes (Open Location Code) ───────────────────────────
+const OLC_CHARS = '23456789CFGHJMPQRVWX';
 
-export function latLonToPlusCode(lat, lon, codeLength = 10) {
-  lat = clipValue(lat, -LAT_MAX, LAT_MAX);
-  lon = normalizeLon(lon);
-
-  let latVal = (lat + LAT_MAX) * Math.pow(ENCODING_BASE, 3);
-  let lonVal = (lon + LON_MAX) * Math.pow(ENCODING_BASE, 3);
-
+export function encodePlusCodes(latitude, longitude) {
+  let lat = Math.min(90 - 1e-9, Math.max(-90, +latitude));
+  let lon = +longitude;
+  while (lon < -180) lon += 360;
+  while (lon >= 180) lon -= 360;
+  lat += 90; lon += 180;
+  const latSteps = [20, 1, 0.05, 0.0025, 0.000125];
+  const lonSteps = [20, 1, 0.05, 0.0025, 0.000125];
   let code = '';
-  let digits = 0;
-
-  while (digits < codeLength) {
-    if (digits === SEPARATOR_POSITION) code += SEPARATOR;
-
-    if (digits < PAIR_CODE_LENGTH) {
-      const latDigit = Math.floor(latVal / Math.pow(ENCODING_BASE, 2));
-      const lonDigit = Math.floor(lonVal / Math.pow(ENCODING_BASE, 2));
-      code += CODE_ALPHABET[latDigit];
-      code += CODE_ALPHABET[lonDigit];
-      latVal = (latVal % Math.pow(ENCODING_BASE, 2)) * ENCODING_BASE;
-      lonVal = (lonVal % Math.pow(ENCODING_BASE, 2)) * ENCODING_BASE;
-      digits += 2;
-    } else {
-      const gridCode =
-        Math.floor(latVal / 1) * GRID_COLS + Math.floor(lonVal / 1);
-      code += CODE_ALPHABET[gridCode];
-      latVal = (latVal % 1) * GRID_ROWS;
-      lonVal = (lonVal % 1) * GRID_COLS;
-      digits++;
-    }
+  for (let i = 0; i < 5; i++) {
+    code += OLC_CHARS[Math.floor(lat / latSteps[i]) % 20];
+    code += OLC_CHARS[Math.floor(lon / lonSteps[i]) % 20];
+    if (i === 3) code += '+';
   }
-
-  while (code.length < SEPARATOR_POSITION) code += PADDING_CHARACTER;
-  if (code.length === SEPARATOR_POSITION) code += SEPARATOR;
-
   return code;
 }
 
-export function plusCodeToLatLon(code) {
-  code = code.toUpperCase().trim();
-  if (!isValidOLC(code)) return null;
-
-  code = code.replace(new RegExp(`\\${PADDING_CHARACTER}+${SEPARATOR}?`), SEPARATOR);
-  if (code.indexOf(SEPARATOR) < SEPARATOR_POSITION) {
-    return null; // Short code needs reference location
+export function decodePlusCodes(code) {
+  code = code.toUpperCase().replace(/\s/g, '');
+  if (!code.includes('+')) throw new Error('Invalid Plus Code: missing +');
+  const clean = code.replace('+', '');
+  if (clean.length < 8) throw new Error('Plus Code too short (need at least 8 chars before +)');
+  const latSteps = [20, 1, 0.05, 0.0025, 0.000125];
+  const lonSteps = [20, 1, 0.05, 0.0025, 0.000125];
+  let lat = 0, lon = 0;
+  for (let i = 0; i < 5 && i * 2 + 1 < clean.length; i++) {
+    const latd = OLC_CHARS.indexOf(clean[i * 2]);
+    const lond = OLC_CHARS.indexOf(clean[i * 2 + 1]);
+    if (latd < 0 || lond < 0) throw new Error('Invalid Plus Code character: ' + clean[i * 2] + clean[i * 2 + 1]);
+    lat += latd * latSteps[i];
+    lon += lond * lonSteps[i];
   }
+  const precision = Math.min(5, Math.floor(clean.length / 2));
+  lat += latSteps[precision - 1] / 2;
+  lon += lonSteps[precision - 1] / 2;
+  return { lat: lat - 90, lon: lon - 180 };
+}
 
-  const stripped = code.replace(SEPARATOR, '');
-  let latLow = -LAT_MAX;
-  let lonLow = -LON_MAX;
-  let latHigh = LAT_MAX;
-  let lonHigh = LON_MAX;
+// ── Parsing ────────────────────────────────────────────────────
+export function parseDD(lat, lon) {
+  const la = parseFloat(lat), lo = parseFloat(lon);
+  if (isNaN(la) || isNaN(lo)) throw new Error('Invalid decimal degrees');
+  if (la < -90 || la > 90) throw new Error('Latitude must be -90 to 90');
+  if (lo < -180 || lo > 180) throw new Error('Longitude must be -180 to 180');
+  return { lat: la, lon: lo };
+}
 
-  let latRes = Math.pow(ENCODING_BASE, 2);
-  let lonRes = Math.pow(ENCODING_BASE, 2);
+export function parseDMS(str) {
+  const clean = str.trim().toUpperCase().replace(/[°'"]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const parts = clean.split(' ').filter(Boolean);
+  if (parts.length < 3) throw new Error('Need degrees minutes seconds direction');
+  const d = parseFloat(parts[0]);
+  const m = parseFloat(parts[1]);
+  const s = parseFloat(parts[2]);
+  const dir = parts[3] || '';
+  if (isNaN(d) || isNaN(m) || isNaN(s)) throw new Error('Invalid DMS');
+  let dd = d + m / 60 + s / 3600;
+  if (/[SW]/.test(dir)) dd = -dd;
+  return dd;
+}
 
-  let i = 0;
-  while (i < Math.min(stripped.length, PAIR_CODE_LENGTH)) {
-    latRes /= ENCODING_BASE;
-    lonRes /= ENCODING_BASE;
-    latLow += CODE_ALPHABET.indexOf(stripped[i]) * latRes;
-    lonLow += CODE_ALPHABET.indexOf(stripped[i + 1]) * lonRes;
-    i += 2;
+export function parseDMSPair(latStr, lonStr) {
+  return { lat: parseDMS(latStr), lon: parseDMS(lonStr) };
+}
+
+export function parseDM(str) {
+  const clean = str.trim().toUpperCase().replace(/[°']+/g, ' ').replace(/\s+/g, ' ').trim();
+  const parts = clean.split(' ').filter(Boolean);
+  if (parts.length < 2) throw new Error('Need degrees decimal-minutes direction');
+  const d = parseFloat(parts[0]);
+  const m = parseFloat(parts[1]);
+  const dir = parts[2] || '';
+  if (isNaN(d) || isNaN(m)) throw new Error('Invalid DM');
+  let dd = d + m / 60;
+  if (/[SW]/.test(dir)) dd = -dd;
+  return dd;
+}
+
+export function parseDMPair(latStr, lonStr) {
+  return { lat: parseDM(latStr), lon: parseDM(lonStr) };
+}
+
+// ── Aliases used by MapScreen ──────────────────────────────────
+export const latLonToMaidenhead = (lat, lon) => toMaidenhead(lat, lon, 8);
+export const latLonToOSGridRef = toOSGridRef;
+
+// ── Navigation helpers ─────────────────────────────────────────
+export function haversineDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δφ = (lat2 - lat1) * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+  const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export function bearingTo(lat1, lon1, lat2, lon2) {
+  const φ1 = lat1 * Math.PI / 180;
+  const φ2 = lat2 * Math.PI / 180;
+  const Δλ = (lon2 - lon1) * Math.PI / 180;
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+export function formatDistance(meters, unit = 'km') {
+  if (unit === 'mi') {
+    const miles = meters / 1609.344;
+    if (miles < 0.1) return `${Math.round(meters * 3.28084)}ft`;
+    return `${miles.toFixed(2)}mi`;
   }
-
-  let gridRowRes = latRes / GRID_ROWS;
-  let gridColRes = lonRes / GRID_COLS;
-
-  while (i < stripped.length) {
-    const ndx = CODE_ALPHABET.indexOf(stripped[i]);
-    const row = Math.floor(ndx / GRID_COLS);
-    const col = ndx % GRID_COLS;
-    latLow += row * gridRowRes;
-    lonLow += col * gridColRes;
-    gridRowRes /= GRID_ROWS;
-    gridColRes /= GRID_COLS;
-    i++;
-  }
-
-  return {
-    lat: latLow + (latRes / 2),
-    lon: lonLow + (lonRes / 2),
-  };
+  if (meters < 1000) return `${Math.round(meters)}m`;
+  return `${(meters / 1000).toFixed(2)}km`;
 }
 
-function clipValue(val, min, max) {
-  return Math.min(max, Math.max(min, val));
+export function formatBearing(deg) {
+  const cardinals = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+  return `${Math.round(deg)}° ${cardinals[Math.round(deg / 22.5) % 16]}`;
 }
 
-function normalizeLon(lon) {
-  while (lon < -LON_MAX) lon += 360;
-  while (lon >= LON_MAX) lon -= 360;
-  return lon;
+// ── Main: get all formats for a lat/lon ────────────────────────
+export function getAllFormats(lat, lon) {
+  const latStr = lat.toFixed(6);
+  const lonStr = lon.toFixed(6);
+  const results = [];
+
+  results.push({ label: 'Decimal Degrees', value: `${latStr}, ${lonStr}` });
+  results.push({ label: 'DMS', value: `${toDMS(lat, true)}, ${toDMS(lon, false)}` });
+  results.push({ label: 'Degrees Dec. Minutes', value: `${toDM(lat, true)}, ${toDM(lon, false)}` });
+  results.push({ label: 'Maidenhead Grid', value: toMaidenhead(lat, lon, 8) });
+
+  const osResult = toOSGridRef(lat, lon);
+  results.push({ label: 'OS Grid Reference', value: osResult });
+  results.push({ label: 'WAB Square', value: osResult !== 'Outside GB' ? toWAB(lat, lon) : 'Outside GB' });
+
+  results.push({ label: 'CQ Zone', value: String(calcCQZone(lat, lon)) });
+  results.push({ label: 'ITU Zone', value: String(calcITUZone(lat, lon)) });
+  results.push({ label: 'Plus Code (OLC)', value: encodePlusCodes(lat, lon) });
+
+  return results;
 }
 
-// ── Master detect + convert ───────────────────────────────────
+// ── convertAll — auto-detect format and return all conversions ─
+// This is the main entry point for the ConvertScreen GO button.
+// Returns null if the input can't be parsed.
+export function convertAll(raw) {
+  if (!raw) return null;
+  const str = raw.trim();
+  let lat, lon, detected;
 
-export function detectFormat(input) {
-  input = input.trim();
-  if (isMaidenhead(input)) return 'maidenhead';
-  if (isOSGridRef(input)) return 'osgrid';
-  if (isWAB(input)) return 'wab';
-  if (isPlusCode(input)) return 'pluscode';
-  if (parseDMS(input)) return 'latlon';
-  return null;
-}
+  try {
+    // ── Maidenhead e.g. IO93HM, IO93 ──────────────────────────
+    if (/^[A-R]{2}[0-9]{2}([A-X]{2}([0-9]{2})?)?$/i.test(str.replace(/\s/g, ''))) {
+      const r = fromMaidenhead(str.replace(/\s/g, ''));
+      lat = r.lat; lon = r.lon; detected = 'maidenhead';
 
-export function convertAll(input) {
-  input = input.trim();
-  const format = detectFormat(input);
-  let latlon = null;
+    // ── WAB e.g. SE49 ─────────────────────────────────────────
+    } else if (/^[A-Z]{2}\d{2}$/i.test(str.replace(/\s/g, ''))) {
+      const r = fromWAB(str.replace(/\s/g, ''));
+      lat = r.lat; lon = r.lon; detected = 'wab';
 
-  switch (format) {
-    case 'latlon':
-      latlon = parseDMS(input);
-      break;
-    case 'maidenhead':
-      latlon = maidenheadToLatLon(input);
-      break;
-    case 'osgrid':
-      latlon = osGridRefToLatLon(input);
-      break;
-    case 'pluscode':
-      latlon = plusCodeToLatLon(input);
-      break;
-    case 'wab': {
-      const upper = input.toUpperCase();
-      const gridSquares = [
-        'VWXYZ', 'QRSTU', 'LMNOP', 'FGHJK', 'ABCDE'
-      ];
-      let major_e = -1, major_n = -1, sub_e = -1, sub_n = -1;
-      for (let row = 0; row < 5; row++) {
-        const c = gridSquares[row].indexOf(upper[0]);
-        if (c >= 0) { major_n = row; major_e = c; break; }
-      }
-      for (let row = 0; row < 5; row++) {
-        const c = gridSquares[row].indexOf(upper[1]);
-        if (c >= 0) { sub_n = row; sub_e = c; break; }
-      }
-      if (major_e >= 0 && sub_e >= 0) {
-        const eKm = parseInt(upper[2]) * 10000 + 5000;
-        const nKm = parseInt(upper[3]) * 10000 + 5000;
-        const totalE = major_e * 500000 + sub_e * 100000 + eKm - 1000000;
-        const totalN = major_n * 500000 + sub_n * 100000 + nKm - 500000;
-        latlon = osgbToLatLon(totalE, totalN);
-      }
-      break;
+    // ── OS Grid Ref e.g. SE 490 330, TQ301806 ─────────────────
+    } else if (/^[HJNOST][A-HJ-Z]\s*\d{4,10}$/i.test(str.replace(/\s+/g, ' ').trim())) {
+      const r = fromOSGridRef(str);
+      lat = r.lat; lon = r.lon; detected = 'osgrid';
+
+    // ── Plus Code e.g. 9C6WXGRQ+XX ───────────────────────────
+    } else if (/^[23456789CFGHJMPQRVWX]{4,8}\+[23456789CFGHJMPQRVWX]{0,2}$/i.test(str.replace(/\s/g, ''))) {
+      const r = decodePlusCodes(str.replace(/\s/g, ''));
+      lat = r.lat; lon = r.lon; detected = 'pluscode';
+
+    // ── DMS e.g. 53° 47' 16" N, 1° 14' 0" W ─────────────────
+    } else if (/[°'"]\s*[NSEW]/i.test(str) && str.includes(',')) {
+      const parts = str.split(',');
+      if (parts.length === 2) {
+        const r = parseDMSPair(parts[0].trim(), parts[1].trim());
+        lat = r.lat; lon = r.lon; detected = 'dms';
+      } else return null;
+
+    // ── DDM e.g. 53° 47.28' N, 1° 14.00' W ──────────────────
+    } else if (/°.*'/.test(str) && !/["″]/.test(str) && str.includes(',')) {
+      const parts = str.split(',');
+      if (parts.length === 2) {
+        const r = parseDMPair(parts[0].trim(), parts[1].trim());
+        lat = r.lat; lon = r.lon; detected = 'degreesMinutes';
+      } else return null;
+
+    // ── Decimal degrees e.g. 53.788, -1.233 ──────────────────
+    } else if (/^-?\d{1,3}\.?\d*\s*,\s*-?\d{1,3}\.?\d*$/.test(str)) {
+      const parts = str.split(',');
+      const r = parseDD(parts[0].trim(), parts[1].trim());
+      lat = r.lat; lon = r.lon; detected = 'decimal';
+
+    } else {
+      return null; // unknown format — caller will try place search
     }
-    default:
-      return null;
+  } catch (e) {
+    return null;
   }
 
-  if (!latlon) return null;
-  const { lat, lon } = latlon;
+  if (lat == null || isNaN(lat) || isNaN(lon)) return null;
+
+  const osResult = toOSGridRef(lat, lon);
+  const inGB = osResult !== 'Outside GB';
 
   return {
-    detected: format,
+    detected,
     latlon: { lat, lon },
-    decimal: `${lat.toFixed(6)}, ${lon.toFixed(6)}`,
-    dms: latLonToDMS(lat, lon),
-    degreesMinutes: latLonToDegreesMinutes(lat, lon),
-    maidenhead: latLonToMaidenhead(lat, lon),
-    osgrid: latLonToOSGridRef(lat, lon) ?? 'Outside GB',
-    wab: latLonToWAB(lat, lon) ?? 'Outside GB',
-    pluscode: latLonToPlusCode(lat, lon),
+    decimal:        `${lat.toFixed(6)}, ${lon.toFixed(6)}`,
+    dms:            `${toDMS(lat, true)}, ${toDMS(lon, false)}`,
+    degreesMinutes: `${toDM(lat, true)}, ${toDM(lon, false)}`,
+    maidenhead:     toMaidenhead(lat, lon, 8),
+    osgrid:         osResult,
+    wab:            inGB ? toWAB(lat, lon) : 'Outside GB',
+    pluscode:       encodePlusCodes(lat, lon),
   };
 }

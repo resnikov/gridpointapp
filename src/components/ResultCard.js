@@ -27,7 +27,6 @@ const FORMAT_ICONS = {
 export default function ResultCard({
   formatKey, value, isSource,
   expanded, onPress,
-  onSetTarget, hasTarget,
 }) {
   const [copied, setCopied] = React.useState(false);
   const isOutsideGB = value === 'Outside GB';
@@ -37,11 +36,6 @@ export default function ResultCard({
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
-  };
-
-  const handleSetTarget = async () => {
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    onSetTarget?.();
   };
 
   return (
@@ -79,23 +73,11 @@ export default function ResultCard({
         {value}
       </Text>
 
-      {/* Actions — only shown when expanded */}
       {expanded && !isOutsideGB && (
         <View style={styles.actions}>
           <TouchableOpacity style={styles.btn} onPress={handleCopy} activeOpacity={0.7}>
             <Text style={styles.btnText}>{copied ? '✓ COPIED' : '⎘ COPY'}</Text>
           </TouchableOpacity>
-          {onSetTarget && (
-            <TouchableOpacity
-              style={[styles.btn, styles.btnTarget, hasTarget && styles.btnTargetActive]}
-              onPress={handleSetTarget}
-              activeOpacity={0.7}
-            >
-              <Text style={[styles.btnText, styles.btnTargetText]}>
-                {hasTarget ? '⌖ UPDATE TARGET' : '⌖ SET TARGET'}
-              </Text>
-            </TouchableOpacity>
-          )}
         </View>
       )}
     </TouchableOpacity>
@@ -197,15 +179,5 @@ const styles = StyleSheet.create({
     color: colors.textMid,
     fontFamily: 'Courier',
     letterSpacing: 1.5,
-  },
-  btnTarget: {
-    borderColor: colors.amber,
-    backgroundColor: colors.amberGlow,
-  },
-  btnTargetActive: {
-    borderColor: colors.amber,
-  },
-  btnTargetText: {
-    color: colors.amber,
   },
 });

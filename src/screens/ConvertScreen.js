@@ -1,10 +1,10 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, StatusBar, ActivityIndicator, KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import * as Location from 'expo-location';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -27,11 +27,10 @@ async function searchPlaceName(query) {
 
 export default function ConvertScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
-  const { visibleFormats, target, setTarget } = useSettings();
+  const { visibleFormats, target, setTarget, queuedSearch, setQueuedSearch } = useSettings();
   const [input, setInput] = useState('');
   const [results, setResults] = useState(null);
   const [error, setError] = useState(null);
-  const [locating, setLocating] = useState(false);
   const [searching, setSearching] = useState(false);
   const [placeResults, setPlaceResults] = useState(null);
   const [expandedCard, setExpandedCard] = useState(null);
@@ -39,6 +38,14 @@ export default function ConvertScreen({ navigation, route }) {
   React.useEffect(() => {
     if (route?.params?.target) setTarget(route.params.target);
   }, [route?.params?.target]);
+
+  useFocusEffect(useCallback(() => {
+    if (queuedSearch) {
+      setInput(queuedSearch);
+      handleSearch(queuedSearch);
+      setQueuedSearch(null);
+    }
+  }, [queuedSearch]));
 
   const handleSearch = useCallback(async (text) => {
     const val = (text ?? input).trim();
@@ -52,6 +59,8 @@ export default function ConvertScreen({ navigation, route }) {
       setError(null);
       setPlaceResults(null);
       setResults(res);
+      setTarget({ ...res.latlon, label: val });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       return;
     }
 
@@ -77,39 +86,18 @@ export default function ConvertScreen({ navigation, route }) {
   const handleSelectPlace = (place) => {
     const lat = parseFloat(place.lat);
     const lon = parseFloat(place.lon);
-    const text = `${lat.toFixed(6)}, ${lon.toFixed(6)}`;
-    setInput(text);
     setPlaceResults(null);
-    const res = convertAll(text);
-    if (res) { setResults(res); setError(null); }
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  };
-
-  const handleMyLocation = async () => {
-    setLocating(true);
-    try {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') { setError('Location permission denied.'); return; }
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      const { latitude, longitude } = loc.coords;
-      const text = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
-      setInput(text);
-      handleSearch(text);
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch (e) {
-      setError('Could not get location.');
-    } finally {
-      setLocating(false);
+    const res = convertAll(`${lat.toFixed(6)}, ${lon.toFixed(6)}`);
+    if (res) {
+      setResults(res);
+      setError(null);
+      setTarget({ ...res.latlon, label: input.trim() });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     }
   };
 
-  const handleSetTarget = (latlon) => {
-    setTarget(latlon);
-    setExpandedCard(null);
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-  };
 
-  return (
+return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: colors.bg }}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -138,7 +126,7 @@ export default function ConvertScreen({ navigation, route }) {
             value={input}
             onChangeText={(t) => {
               setInput(t);
-              if (!t) { setResults(null); setPlaceResults(null); setError(null); }
+              if (!t) { setResults(null); setPlaceResults(null); setError(null); setTarget(null); }
             }}
             onSubmitEditing={() => handleSearch()}
             placeholder="Coordinates or place name…"
@@ -146,12 +134,13 @@ export default function ConvertScreen({ navigation, route }) {
             autoCorrect={false}
             autoCapitalize="none"
             returnKeyType="search"
+            selectTextOnFocus
           />
           <TouchableOpacity
-            style={[styles.searchBtn, (searching || locating) && styles.searchBtnBusy]}
+            style={[styles.searchBtn, searching && styles.searchBtnBusy]}
             onPress={() => handleSearch()}
             activeOpacity={0.8}
-            disabled={searching || locating}
+            disabled={searching}
           >
             {searching
               ? <ActivityIndicator size="small" color={colors.bg} />
@@ -160,12 +149,6 @@ export default function ConvertScreen({ navigation, route }) {
         </View>
 
         <View style={styles.strip}>
-          <TouchableOpacity style={styles.stripBtn} onPress={handleMyLocation} disabled={locating}>
-            {locating
-              ? <ActivityIndicator size="small" color={colors.accent} />
-              : <Text style={styles.stripBtnText}>⊕ MY LOCATION</Text>}
-          </TouchableOpacity>
-
           {target && (
             <View style={styles.targetChip}>
               <Text style={styles.targetChipLabel}>TARGET </Text>
@@ -173,7 +156,7 @@ export default function ConvertScreen({ navigation, route }) {
                 {target.lat.toFixed(4)}, {target.lon.toFixed(4)}
               </Text>
               <TouchableOpacity
-                onPress={() => setTarget(null)}
+                onPress={() => { setTarget(null); setInput(''); setResults(null); setPlaceResults(null); setError(null); }}
                 hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
                 <Text style={styles.targetChipClear}>✕</Text>
@@ -222,12 +205,12 @@ export default function ConvertScreen({ navigation, route }) {
           <View style={styles.hints}>
             <Text style={styles.hintLabel}>TRY AN EXAMPLE</Text>
             {[
-              'Sherburn in Elmet',
-              'IO93HM',
-              '53.788, -1.233',
-              'SE 490 330',
-              'SE49',
-              '9C6WXGRQ+XX',
+              'Bletchley Park',
+              'IO91PX',
+              '51.9977, -0.7407',
+              'SP 863 341',
+              'SP83',
+              '9C3XX7X6+',
             ].map((ex) => (
               <TouchableOpacity
                 key={ex}
@@ -255,8 +238,6 @@ export default function ConvertScreen({ navigation, route }) {
                 }
                 expanded={expandedCard === key}
                 onPress={() => setExpandedCard(expandedCard === key ? null : key)}
-                onSetTarget={() => handleSetTarget(results.latlon)}
-                hasTarget={!!target}
               />
             ))}
           </View>
@@ -280,26 +261,26 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   logoText: {
-    fontSize: 24,
+    fontSize: 18,
     color: colors.text,
     fontFamily: 'Courier',
     fontWeight: '700',
     letterSpacing: 4,
   },
   logoAccent: {
-    fontSize: 24,
+    fontSize: 18,
     color: colors.accent,
     fontFamily: 'Courier',
     fontWeight: '700',
     letterSpacing: 4,
   },
   logoSub: {
-    fontSize: 11,
+    fontSize: 9,
     color: colors.textDim,
     fontFamily: 'Courier',
     letterSpacing: 2,
     flex: 1,
-    marginLeft: 2,
+    marginLeft: 4,
   },
   arBadge: {
     backgroundColor: colors.amberGlow,

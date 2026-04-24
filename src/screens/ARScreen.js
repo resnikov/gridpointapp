@@ -8,6 +8,7 @@ import * as Location from 'expo-location';
 import { Magnetometer, DeviceMotion } from 'expo-sensors';
 import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
 
 import { haversineDistance, bearingTo, formatDistance, formatBearing } from '../utils/conversions';
 import { colors, spacing, radii } from '../utils/theme';
@@ -18,7 +19,8 @@ const ARROW_SIZE = 80;
 
 export default function ARScreen({ navigation, route }) {
   const insets = useSafeAreaInsets();
-  const { target: contextTarget } = useSettings();
+  const isFocused = useIsFocused();
+  const { target: contextTarget, distanceUnit } = useSettings();
   const target = route?.params?.target ?? contextTarget;
 
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
@@ -37,6 +39,10 @@ export default function ARScreen({ navigation, route }) {
   const smoothHeading = useRef(0);
   const arrowAnim = useRef(new Animated.Value(0)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
+
+  // Hysteresis for isAhead — enter at ±35°, leave at ±55° to stop flickering
+  const isAheadRef = useRef(false);
+  const [isAhead, setIsAhead] = useState(false);
 
   // Pulse animation for the crosshair
   useEffect(() => {
@@ -121,6 +127,16 @@ export default function ARScreen({ navigation, route }) {
     rel = ((rel + 180) % 360) - 180; // normalise to -180..+180
     setRelativeAngle(rel);
 
+    // Hysteresis: enter "ahead" at ±35°, leave at ±55°
+    const absRel = Math.abs(rel);
+    if (isAheadRef.current && absRel > 55) {
+      isAheadRef.current = false;
+      setIsAhead(false);
+    } else if (!isAheadRef.current && absRel < 35) {
+      isAheadRef.current = true;
+      setIsAhead(true);
+    }
+
     Animated.spring(arrowAnim, {
       toValue: rel,
       useNativeDriver: true,
@@ -140,25 +156,23 @@ export default function ARScreen({ navigation, route }) {
       />
     );
   }
-  if (!locationPermission) {
-    return (
-      <PermissionScreen
-        message="Location access is needed to calculate bearing."
-      />
-    );
-  }
 
-  // Whether target is roughly ahead (within ±45°) and not too tilted up/down
-  const isAhead = Math.abs(relativeAngle) < 45;
   const verticalOffset = Math.max(-100, Math.min(100, pitch * -2));
 
   return (
     <View style={styles.container}>
-      {/* Camera background */}
-      <CameraView style={StyleSheet.absoluteFill} facing="back" />
+      {/* Camera background — only mount when screen is focused */}
+      {isFocused && <CameraView style={StyleSheet.absoluteFill} facing="back" />}
 
       {/* Dark overlay scrim */}
       <View style={styles.scrim} />
+
+      {/* Location unavailable warning */}
+      {locationPermission === false && (
+        <View style={styles.locationWarning}>
+          <Text style={styles.locationWarningText}>⚠ Location permission needed for bearing</Text>
+        </View>
+      )}
 
       {/* ── Crosshair / target indicator ── */}
       {isAhead && (
@@ -175,7 +189,7 @@ export default function ARScreen({ navigation, route }) {
           </Animated.View>
           {distance !== null && (
             <View style={styles.distancePill}>
-              <Text style={styles.distancePillText}>{formatDistance(distance)}</Text>
+              <Text style={styles.distancePillText}>{formatDistance(distance, distanceUnit)}</Text>
             </View>
           )}
         </Animated.View>
@@ -226,29 +240,29 @@ export default function ARScreen({ navigation, route }) {
       </View>
 
       {/* ── Info HUD bottom ── */}
-      <View style={[styles.hud, styles.hudBottom, { bottom: insets.bottom + 70 }]}>
-        {bearing !== null && (
-          <View style={styles.hudPanelLarge}>
-            <Text style={styles.hudLabel}>BEARING TO TARGET</Text>
-            <Text style={styles.hudValueLarge}>{formatBearing(bearing)}</Text>
-          </View>
-        )}
-
-        {distance !== null && (
-          <View style={styles.hudPanelLarge}>
-            <Text style={styles.hudLabel}>DISTANCE</Text>
-            <Text style={styles.hudValueLarge}>{formatDistance(distance)}</Text>
-          </View>
-        )}
-
+      <View style={[styles.hudBottom, { bottom: insets.bottom + 70 }]}>
         {target && (
-          <View style={styles.hudPanelLarge}>
+          <View style={styles.hudTargetRow}>
             <Text style={styles.hudLabel}>TARGET</Text>
-            <Text style={styles.hudValueSmall}>
-              {target.lat.toFixed(4)}, {target.lon.toFixed(4)}
+            <Text style={styles.hudTargetName} numberOfLines={1}>
+              {target.label || `${target.lat.toFixed(4)}, ${target.lon.toFixed(4)}`}
             </Text>
           </View>
         )}
+        <View style={styles.hudStatsRow}>
+          {bearing !== null && (
+            <View style={styles.hudStat}>
+              <Text style={styles.hudLabel}>BEARING</Text>
+              <Text style={styles.hudValueLarge}>{formatBearing(bearing)}</Text>
+            </View>
+          )}
+          {distance !== null && (
+            <View style={styles.hudStat}>
+              <Text style={styles.hudLabel}>DISTANCE</Text>
+              <Text style={styles.hudValueLarge}>{formatDistance(distance, distanceUnit)}</Text>
+            </View>
+          )}
+        </View>
       </View>
 
       {/* ── Horizon line ── */}
@@ -424,11 +438,34 @@ const styles = StyleSheet.create({
   },
   hudTop: { alignItems: 'flex-start' },
   hudBottom: {
-    flexWrap: 'wrap',
-    backgroundColor: 'rgba(8,12,16,0.75)',
-    paddingVertical: spacing.sm,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(8,12,16,0.85)',
     borderTopWidth: 1,
     borderTopColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  hudTargetRow: {
+    marginBottom: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingBottom: spacing.sm,
+  },
+  hudTargetName: {
+    fontSize: 15,
+    color: colors.text,
+    fontFamily: 'Courier',
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  hudStatsRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  hudStat: {
+    flex: 1,
   },
   hudPanel: {
     backgroundColor: colors.overlay,
@@ -486,6 +523,24 @@ const styles = StyleSheet.create({
     fontFamily: 'Courier',
     fontSize: 11,
     letterSpacing: 1.5,
+  },
+
+  locationWarning: {
+    position: 'absolute',
+    top: 100,
+    left: 20,
+    right: 20,
+    backgroundColor: 'rgba(239,68,68,0.85)',
+    borderRadius: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  locationWarningText: {
+    color: '#fff',
+    fontFamily: 'Courier',
+    fontSize: 11,
+    letterSpacing: 1,
   },
 
   // Horizon line

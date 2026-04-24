@@ -1,88 +1,170 @@
-import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Linking, Platform } from 'react-native';
+import React, { useState, useRef, useEffect } from 'react';
+import {
+  View, Text, StyleSheet, TouchableOpacity, Platform,
+} from 'react-native';
+import MapView, { Marker, PROVIDER_DEFAULT } from 'react-native-maps';
+import * as Location from 'expo-location';
+import * as Haptics from 'expo-haptics';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useIsFocused } from '@react-navigation/native';
+
 import { useSettings } from '../utils/SettingsContext';
 import { colors, spacing, radii } from '../utils/theme';
-import { latLonToMaidenhead, latLonToOSGridRef } from '../utils/conversions';
+import { toMaidenhead, toOSGridRef } from '../utils/conversions';
+
+const DEFAULT_REGION = {
+  latitude: 51.9977,
+  longitude: -0.7407,
+  latitudeDelta: 0.05,
+  longitudeDelta: 0.05,
+};
 
 export default function MapScreen() {
   const insets = useSafeAreaInsets();
-  const { target, setTarget } = useSettings();
+  const isFocused = useIsFocused();
+  const { target, setTarget, setQueuedSearch } = useSettings();
+  const mapRef = useRef(null);
+  const [userLocation, setUserLocation] = useState(null);
+  const [pendingMarker, setPendingMarker] = useState(null);
+  const centredOnUser = useRef(false);
 
-  const openInMaps = () => {
-    if (!target) return;
-    const url = Platform.OS === 'ios'
-      ? `maps:?q=${target.lat},${target.lon}&ll=${target.lat},${target.lon}`
-      : `geo:${target.lat},${target.lon}?q=${target.lat},${target.lon}`;
-    Linking.openURL(url);
+  // Get user location once on focus
+  useEffect(() => {
+    if (!isFocused) return;
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setUserLocation(loc.coords);
+    })();
+  }, [isFocused]);
+
+  // As soon as we get a location, fly there — but only once and only if no target is set
+  useEffect(() => {
+    if (!userLocation || target || centredOnUser.current || !mapRef.current) return;
+    centredOnUser.current = true;
+    mapRef.current.animateToRegion({
+      latitude: userLocation.latitude,
+      longitude: userLocation.longitude,
+      latitudeDelta: 0.05,
+      longitudeDelta: 0.05,
+    }, 600);
+  }, [userLocation]);
+
+  // Pan to target when it changes
+  useEffect(() => {
+    if (target && mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: target.lat,
+        longitude: target.lon,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      }, 400);
+    }
+  }, [target]);
+
+  const handleMapPress = async (e) => {
+    const { latitude, longitude } = e.nativeEvent.coordinate;
+    setPendingMarker({ lat: latitude, lon: longitude });
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
   };
 
-  const openInGoogleMaps = () => {
-    if (!target) return;
-    Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${target.lat},${target.lon}`);
+  const confirmTarget = async () => {
+    if (!pendingMarker) return;
+    const coordStr = `${pendingMarker.lat.toFixed(6)}, ${pendingMarker.lon.toFixed(6)}`;
+    setTarget({ ...pendingMarker, label: coordStr });
+    setQueuedSearch(coordStr);
+    setPendingMarker(null);
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
-  const openInOSMaps = () => {
-    if (!target) return;
-    Linking.openURL(`https://www.openstreetmap.org/?mlat=${target.lat}&mlon=${target.lon}&zoom=14`);
+  const cancelPending = () => setPendingMarker(null);
+
+  const goToMyLocation = async () => {
+    if (userLocation && mapRef.current) {
+      mapRef.current.animateToRegion({
+        latitude: userLocation.latitude,
+        longitude: userLocation.longitude,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      }, 400);
+    }
   };
+
+  const initialRegion = target
+    ? { latitude: target.lat, longitude: target.lon, latitudeDelta: 0.01, longitudeDelta: 0.01 }
+    : userLocation
+    ? { latitude: userLocation.latitude, longitude: userLocation.longitude, latitudeDelta: 0.05, longitudeDelta: 0.05 }
+    : DEFAULT_REGION;
+
+  const activeMarker = pendingMarker ?? target;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top + 16 }]}>
-      <View style={styles.header}>
-        <Text style={styles.title}>MAP</Text>
-        <Text style={styles.subtitle}>GRIDPOINT · M0LZN</Text>
+    <View style={styles.container}>
+      <MapView
+        ref={mapRef}
+        style={StyleSheet.absoluteFill}
+        provider={PROVIDER_DEFAULT}
+        initialRegion={initialRegion}
+        onPress={handleMapPress}
+        showsUserLocation
+        showsMyLocationButton={false}
+        mapType="standard"
+      >
+        {activeMarker && (
+          <Marker
+            coordinate={{ latitude: activeMarker.lat, longitude: activeMarker.lon }}
+            pinColor={pendingMarker ? colors.amber : colors.accent}
+          />
+        )}
+      </MapView>
+
+      {/* ── Top bar ── */}
+      <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>MAP</Text>
+          {userLocation && (
+            <TouchableOpacity style={styles.myLocBtn} onPress={goToMyLocation}>
+              <Text style={styles.myLocBtnText}>⊕ ME</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+        <Text style={styles.hint}>Tap anywhere to place a target</Text>
       </View>
 
-      {target ? (
-        <>
-          <View style={styles.card}>
-            <Text style={styles.cardLabel}>TARGET LOCATION</Text>
-
-            <View style={styles.coordRow}>
-              <Text style={styles.coordLabel}>LAT</Text>
-              <Text style={styles.coordValue}>{target.lat.toFixed(6)}</Text>
-            </View>
-            <View style={[styles.coordRow, styles.coordRowBorder]}>
-              <Text style={styles.coordLabel}>LON</Text>
-              <Text style={styles.coordValue}>{target.lon.toFixed(6)}</Text>
-            </View>
-            <View style={[styles.coordRow, styles.coordRowBorder]}>
-              <Text style={styles.coordLabel}>GRID</Text>
-              <Text style={styles.coordValue}>{latLonToMaidenhead(target.lat, target.lon)}</Text>
-            </View>
-            <View style={[styles.coordRow, styles.coordRowBorder]}>
-              <Text style={styles.coordLabel}>OS</Text>
-              <Text style={styles.coordValue}>{latLonToOSGridRef(target.lat, target.lon) ?? '—'}</Text>
-            </View>
-          </View>
-
-          <Text style={styles.sectionLabel}>OPEN IN</Text>
-          <View style={styles.btnGroup}>
-            <TouchableOpacity style={styles.mapBtn} onPress={openInMaps}>
-              <Text style={styles.mapBtnText}>
-                {Platform.OS === 'ios' ? 'APPLE MAPS' : 'MAPS'}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.mapBtn} onPress={openInGoogleMaps}>
-              <Text style={styles.mapBtnText}>GOOGLE MAPS</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.mapBtn} onPress={openInOSMaps}>
-              <Text style={styles.mapBtnText}>OPENSTREETMAP</Text>
-            </TouchableOpacity>
-          </View>
-
-          <TouchableOpacity style={styles.clearBtn} onPress={() => setTarget(null)}>
-            <Text style={styles.clearBtnText}>✕ CLEAR TARGET</Text>
-          </TouchableOpacity>
-        </>
-      ) : (
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptyIcon}>⌖</Text>
-          <Text style={styles.emptyTitle}>NO TARGET SET</Text>
-          <Text style={styles.emptyDesc}>
-            Search a location on the Convert tab, tap a result card, then tap SET TARGET.
+      {/* ── Pending marker confirmation ── */}
+      {pendingMarker && (
+        <View style={[styles.panel, { bottom: insets.bottom + 16 }]}>
+          <Text style={styles.panelLabel}>SET AS TARGET?</Text>
+          <Text style={styles.panelCoords}>
+            {pendingMarker.lat.toFixed(5)}, {pendingMarker.lon.toFixed(5)}
           </Text>
+          <View style={styles.panelBtns}>
+            <TouchableOpacity style={styles.cancelBtn} onPress={cancelPending}>
+              <Text style={styles.cancelBtnText}>CANCEL</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.confirmBtn} onPress={confirmTarget}>
+              <Text style={styles.confirmBtnText}>⌖ SET TARGET</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* ── Active target info ── */}
+      {target && !pendingMarker && (
+        <View style={[styles.panel, { bottom: insets.bottom + 16 }]}>
+          <View style={styles.targetHeader}>
+            <Text style={styles.panelLabel}>TARGET</Text>
+            <TouchableOpacity onPress={() => setTarget(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Text style={styles.clearText}>✕ CLEAR</Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.targetName} numberOfLines={1}>{target.label}</Text>
+          <View style={styles.targetMeta}>
+            <Text style={styles.metaText}>{toMaidenhead(target.lat, target.lon, 6)}</Text>
+            <Text style={styles.metaDot}>·</Text>
+            <Text style={styles.metaText}>{toOSGridRef(target.lat, target.lon)}</Text>
+          </View>
         </View>
       )}
     </View>
@@ -93,133 +175,140 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.bg,
-    paddingHorizontal: spacing.md,
   },
-  header: {
-    marginBottom: spacing.lg,
+  topBar: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.sm,
+    backgroundColor: 'rgba(10,12,14,0.82)',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2,
   },
   title: {
-    fontSize: 24,
-    color: colors.text,
     fontFamily: 'Courier',
+    fontSize: 18,
     fontWeight: '700',
     letterSpacing: 4,
+    color: colors.text,
   },
-  subtitle: {
+  myLocBtn: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radii.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  myLocBtnText: {
+    fontSize: 10,
+    color: colors.accent,
+    fontFamily: 'Courier',
+    letterSpacing: 1.5,
+  },
+  hint: {
     fontSize: 9,
     color: colors.textDim,
     fontFamily: 'Courier',
-    letterSpacing: 3,
-    marginTop: 2,
+    letterSpacing: 1.5,
   },
-  card: {
-    backgroundColor: colors.bgCard,
+  panel: {
+    position: 'absolute',
+    left: spacing.md,
+    right: spacing.md,
+    backgroundColor: 'rgba(17,20,22,0.95)',
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radii.lg,
-    marginBottom: spacing.lg,
-    overflow: 'hidden',
+    padding: spacing.md,
   },
-  cardLabel: {
+  panelLabel: {
     fontSize: 8,
     color: colors.textDim,
     fontFamily: 'Courier',
     letterSpacing: 2,
-    paddingHorizontal: spacing.md,
-    paddingTop: 12,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.borderSubtle,
+    marginBottom: 4,
   },
-  coordRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    paddingVertical: 12,
-  },
-  coordRowBorder: {
-    borderTopWidth: 1,
-    borderTopColor: colors.borderSubtle,
-  },
-  coordLabel: {
-    fontSize: 9,
-    color: colors.textDim,
-    fontFamily: 'Courier',
-    letterSpacing: 2,
-    width: 40,
-  },
-  coordValue: {
-    fontSize: 16,
+  panelCoords: {
+    fontSize: 15,
     color: colors.accent,
     fontFamily: 'Courier',
     letterSpacing: 0.5,
-  },
-  sectionLabel: {
-    fontSize: 9,
-    color: colors.textDim,
-    fontFamily: 'Courier',
-    letterSpacing: 2,
     marginBottom: spacing.sm,
   },
-  btnGroup: {
-    gap: 6,
-    marginBottom: spacing.lg,
+  panelBtns: {
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
-  mapBtn: {
+  cancelBtn: {
+    flex: 1,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: radii.md,
-    paddingVertical: 12,
-    paddingHorizontal: spacing.md,
-    alignItems: 'center',
-    backgroundColor: colors.bgCard,
-  },
-  mapBtnText: {
-    color: colors.text,
-    fontFamily: 'Courier',
-    fontSize: 11,
-    letterSpacing: 2,
-  },
-  clearBtn: {
-    borderWidth: 1,
-    borderColor: 'rgba(255,23,68,0.3)',
     borderRadius: radii.md,
     paddingVertical: 10,
     alignItems: 'center',
-    backgroundColor: 'rgba(255,23,68,0.05)',
   },
-  clearBtnText: {
-    color: colors.red,
-    fontFamily: 'Courier',
-    fontSize: 10,
-    letterSpacing: 2,
-  },
-  emptyCard: {
-    backgroundColor: colors.bgCard,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.lg,
-    padding: spacing.xl,
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  emptyIcon: {
-    fontSize: 32,
-    color: colors.textDim,
-    marginBottom: 4,
-  },
-  emptyTitle: {
-    fontSize: 13,
+  cancelBtnText: {
     color: colors.textMid,
     fontFamily: 'Courier',
-    letterSpacing: 2,
-  },
-  emptyDesc: {
     fontSize: 11,
+    letterSpacing: 1.5,
+  },
+  confirmBtn: {
+    flex: 2,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    borderRadius: radii.md,
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: colors.accentGlow,
+  },
+  confirmBtnText: {
+    color: colors.accent,
+    fontFamily: 'Courier',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 1.5,
+  },
+  targetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  clearText: {
+    fontSize: 9,
+    color: colors.red,
+    fontFamily: 'Courier',
+    letterSpacing: 1.5,
+  },
+  targetName: {
+    fontSize: 15,
+    color: colors.text,
+    fontFamily: 'Courier',
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  targetMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  metaText: {
+    fontSize: 10,
     color: colors.textDim,
     fontFamily: 'Courier',
-    textAlign: 'center',
-    lineHeight: 18,
-    marginTop: 4,
+    letterSpacing: 0.5,
+  },
+  metaDot: {
+    color: colors.border,
+    fontSize: 10,
   },
 });

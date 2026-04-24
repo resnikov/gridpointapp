@@ -9,6 +9,7 @@ import { Text, View } from 'react-native';
 import ConvertScreen from './src/screens/ConvertScreen';
 import ARScreen from './src/screens/ARScreen';
 import MapScreen from './src/screens/MapScreen';
+import HomeScreen from './src/screens/HomeScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import { colors } from './src/utils/theme';
 import { SettingsProvider } from './src/utils/SettingsContext';
@@ -17,6 +18,7 @@ const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
 const TAB_ICONS = {
+  'LOCATE':  '⊛',
   'CONVERT': '⊕',
   'AR':      '◎',
   'MAP':     '▦',
@@ -88,6 +90,7 @@ export default function App() {
               ),
             })}
           >
+            <Tab.Screen name="LOCATE" component={HomeScreen} />
             <Tab.Screen name="CONVERT" component={ConvertStack} />
             <Tab.Screen name="AR" component={ARScreen} />
             <Tab.Screen name="MAP" component={MapScreen} />

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const STORAGE_KEY = 'gridpoint_visible_formats';
+const DISTANCE_KEY = 'gridpoint_distance_unit';
 
 export const FORMAT_DEFINITIONS = [
   { key: 'decimal',        label: 'Decimal Degrees',  example: '53.7880, -1.2330',     group: 'Lat / Lon' },
@@ -20,19 +21,24 @@ const SettingsContext = createContext(null);
 export function SettingsProvider({ children }) {
   const [visibleFormats, setVisibleFormats] = useState(DEFAULT_VISIBLE);
   const [loaded, setLoaded] = useState(false);
-  const [target, setTarget] = useState(null); // shared navigation target
+  const [target, setTarget] = useState(null);
+  const [distanceUnit, setDistanceUnitState] = useState('km'); // 'km' | 'mi'
+  const [queuedSearch, setQueuedSearch] = useState(null); // consumed by ConvertScreen on focus
 
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then(raw => {
-        if (raw) {
-          const saved = JSON.parse(raw);
-          setVisibleFormats({ ...DEFAULT_VISIBLE, ...saved });
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoaded(true));
+    Promise.all([
+      AsyncStorage.getItem(STORAGE_KEY),
+      AsyncStorage.getItem(DISTANCE_KEY),
+    ]).then(([rawFormats, rawUnit]) => {
+      if (rawFormats) setVisibleFormats({ ...DEFAULT_VISIBLE, ...JSON.parse(rawFormats) });
+      if (rawUnit) setDistanceUnitState(rawUnit);
+    }).catch(() => {}).finally(() => setLoaded(true));
   }, []);
+
+  const setDistanceUnit = (unit) => {
+    setDistanceUnitState(unit);
+    AsyncStorage.setItem(DISTANCE_KEY, unit).catch(() => {});
+  };
 
   const toggleFormat = (key) => {
     setVisibleFormats(prev => {
@@ -54,7 +60,7 @@ export function SettingsProvider({ children }) {
   };
 
   return (
-    <SettingsContext.Provider value={{ visibleFormats, toggleFormat, setAll, loaded, target, setTarget }}>
+    <SettingsContext.Provider value={{ visibleFormats, toggleFormat, setAll, loaded, target, setTarget, distanceUnit, setDistanceUnit, queuedSearch, setQueuedSearch }}>
       {children}
     </SettingsContext.Provider>
   );
