@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "GridPoint",
+    "slug": "gridpoint",
+    "version": "1.0.0",
+    "sdkVersion": "54.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#0a0a0f"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.m0lzn.gridpoint",
+      "infoPlist": {
+        "NSCameraUsageDescription": "GridPoint uses the camera to show AR bearing and distance to your target location.",
+        "NSLocationWhenInUseUsageDescription": "GridPoint uses your location to calculate distance and bearing to target coordinates.",
+        "NSLocationAlwaysUsageDescription": "GridPoint uses your location to calculate distance and bearing to target coordinates."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#0a0a0f"
+      },
+      "package": "com.m0lzn.gridpoint",
+      "permissions": [
+        "CAMERA",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "GridPoint uses the camera for AR bearing display."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "GridPoint uses location to calculate bearing and distance."
+        }
+      ]
+    ]
+  }
+}
