@@ -1,82 +1,102 @@
-# GridPoint Mobile
+# GridPoint
 
-A React Native / Expo port of GridPoint — location format explorer with AR compass.
+A mobile app for ham radio operators and outdoor enthusiasts that converts GPS coordinates into every major grid format in real time.
 
-## Features
+Built with React Native / Expo. Works fully offline for all coordinate conversions.
 
-- Convert between **all** coordinate formats:
-  - Decimal degrees (`51.5074, -0.1278`)
-  - Degrees Minutes Seconds
-  - Degrees Minutes
-  - **Maidenhead Grid** (`IO91wm`) — ham radio locator
-  - **OS Grid Reference** (`TQ 380 805`) — OSGB36
-  - **WAB Square** (`TQ38`) — for WAB award chasers
-  - **Plus Codes** (`9C3XGV84+HM`) — Google Open Location Code
-- Auto-detects input format
-- **AR Compass** — point your phone at a target location and see bearing + distance overlaid on the camera feed
-- Use your GPS location as input
-- Copy any result to clipboard
-- Set any result as a navigation target
+**M0LZN · [m0lzn.com](https://m0lzn.com) · [github.com/resnikov](https://github.com/resnikov)**
 
 ---
 
-## Quick Start (Expo Go — no build needed)
+## Features
 
-### 1. Install prerequisites
+### LOCATE
+- One-tap GPS fix with accuracy indicator
+- Live tracking mode that updates as you move
+- Displays your position in all supported formats simultaneously
+- Copy any format to clipboard with a single tap
+
+### CONVERT
+- Search by coordinates, grid reference, place name, or any supported format
+- Auto-detects input format (Maidenhead, OS Grid, WAB, Plus Code, DMS, DDM, decimal degrees)
+- Place name search via OpenStreetMap Nominatim — no API key needed
+- Sets the result as your navigation target automatically
+
+### MAP
+- Interactive full-screen map
+- Tap anywhere to drop a marker and set it as your target
+- Flies to your current GPS location on open
+- Populates the Convert tab when a target is set
+
+### AR Compass
+- Live camera view with compass overlay
+- Bearing and distance to your set target
+- Animated directional arrow when target is off-screen
+- Pitch-aware crosshair when target is ahead
+- Hysteresis on the ahead/away threshold to prevent flickering
+
+### CONFIG
+- Toggle which coordinate formats appear in results
+- Switch distance units between kilometres and miles (persisted)
+- Links to website and GitHub
+
+---
+
+## Supported Formats
+
+| Format | Example |
+|---|---|
+| Decimal Degrees | `51.997700, -0.740700` |
+| Degrees Minutes Seconds | `51° 59' 51.72" N, 0° 44' 26.52" W` |
+| Degrees Decimal Minutes | `51° 59.8620' N, 0° 44.4420' W` |
+| Maidenhead Grid Locator | `IO91PX` |
+| OS Grid Reference | `SP 863 341` |
+| WAB Square | `SP83` |
+| Plus Code (OLC) | `9C3XX7X6+` |
+| CQ Zone | `14` |
+| ITU Zone | `18` |
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- [Node.js](https://nodejs.org/) 18+
+- iOS or Android device with [Expo Go](https://expo.dev/client), or a simulator
+
+### Install
 
 ```bash
-# Node.js 18+ required
-npm install -g expo-cli
-```
-
-### 2. Install dependencies
-
-```bash
-cd GridPointApp
+git clone https://github.com/resnikov/gridpointapp.git
+cd gridpointapp
 npm install
 ```
 
-### 3. Start the dev server
+### Run
 
 ```bash
 npx expo start
 ```
 
-### 4. Run on your phone
-
-- Install **Expo Go** from the App Store / Play Store
-- Scan the QR code that appears in the terminal
-- The app loads instantly over your local network
+Scan the QR code with Expo Go on your device, or press `i` for iOS simulator / `a` for Android.
 
 ---
 
-## Building a proper installable app (EAS Build)
-
-When you're ready to install without Expo Go:
-
-### 1. Install EAS CLI
+## Building a standalone app (EAS Build)
 
 ```bash
 npm install -g eas-cli
 eas login
-```
-
-### 2. Configure the build
-
-```bash
 eas build:configure
 ```
 
-### 3. Build for Android (APK — no Play Store account needed)
-
+**Android APK (sideload, no Play Store account needed):**
 ```bash
 eas build -p android --profile preview
 ```
 
-This produces an `.apk` you can sideload directly onto your phone.
-
-### 4. Build for iOS (requires Apple Developer account £79/yr)
-
+**iOS (requires Apple Developer account):**
 ```bash
 eas build -p ios
 ```
@@ -86,61 +106,62 @@ eas build -p ios
 ## Project Structure
 
 ```
-GridPointApp/
-├── App.js                          # Navigation root
-├── app.json                        # Expo config, permissions
+gridpointapp/
+├── App.js                          # Navigation root (tabs + stack)
 ├── src/
 │   ├── screens/
-│   │   ├── ConvertScreen.js        # Main search/convert UI
-│   │   ├── ARScreen.js             # Camera + AR bearing overlay
-│   │   └── MapScreen.js            # Target location map
+│   │   ├── HomeScreen.js           # LOCATE tab — GPS fix + all formats
+│   │   ├── ConvertScreen.js        # CONVERT tab — search and convert
+│   │   ├── ARScreen.js             # AR tab — camera + bearing overlay
+│   │   ├── MapScreen.js            # MAP tab — interactive map
+│   │   └── SettingsScreen.js       # CONFIG tab — preferences
 │   ├── components/
-│   │   └── ResultCard.js           # Individual format result card
+│   │   └── ResultCard.js           # Expandable format result card
 │   └── utils/
-│       ├── conversions.js          # All format conversion logic
-│       └── theme.js                # Design tokens / colours
-└── assets/                         # Icons (add your own)
+│       ├── conversions.js          # All coordinate conversion logic (pure JS)
+│       ├── SettingsContext.js      # Global state — target, formats, units
+│       └── theme.js                # Design tokens — colours, spacing, radii
 ```
 
 ---
 
 ## AR Compass — How It Works
 
-1. Search any location and tap **SET TARGET** on any result card
-2. Tap **VIEW IN AR** (or the AR tab)
-3. Point your camera — a cyan crosshair appears when the target is in the camera's field of view
-4. When the target is off-screen, an amber arrow points you in the right direction
+1. Search a location on the Convert tab — it is automatically set as your target
+2. Switch to the AR tab
+3. Point your camera — a cyan crosshair appears when the target is within ~35° of ahead
+4. When the target is off-screen, an amber arrow rotates to point you toward it
 5. Bearing and distance are always shown in the HUD at the bottom
 
 The AR overlay uses:
-- **expo-location** — your GPS position (updates every 2m)
+- **expo-location** — GPS position updated every 2 m
 - **Magnetometer** — compass heading with low-pass smoothing
-- **DeviceMotion** — device pitch for vertical crosshair adjustment
+- **DeviceMotion** — device pitch for vertical crosshair offset
 
 ---
 
-## Permissions Required
+## Permissions
 
-| Permission | Reason |
+| Permission | Used for |
 |---|---|
 | Camera | AR compass view |
-| Location (when in use) | Distance/bearing calculation, "My Location" button |
+| Location (when in use) | GPS fix, live tracking, map, AR bearing |
 
 ---
 
-## Notes for iOS
+## Tech Stack
 
-- Compass accuracy varies by device and magnetic interference
-- Hold the phone reasonably level for best AR results
-- The first time you open the AR screen, iOS will prompt for camera + location permissions
+- [React Native](https://reactnative.dev/) + [Expo](https://expo.dev/) SDK 54
+- [react-native-maps](https://github.com/react-native-maps/react-native-maps)
+- [expo-location](https://docs.expo.dev/versions/latest/sdk/location/)
+- [expo-camera](https://docs.expo.dev/versions/latest/sdk/camera/)
+- [expo-sensors](https://docs.expo.dev/versions/latest/sdk/sensors/)
+- [expo-haptics](https://docs.expo.dev/versions/latest/sdk/haptics/)
+- [React Navigation](https://reactnavigation.org/)
+- [OpenStreetMap Nominatim](https://nominatim.org/) — place search, no key required
 
-## Notes for Android
-
-- On some devices you may need to calibrate the magnetometer (figure-8 motion)
-- Location accuracy depends on GPS signal strength
+OS Grid conversion uses the full OSGB36 ↔ WGS84 Helmert transformation (accurate to ~5 m). All other conversions are pure JS with no external dependencies.
 
 ---
 
-## Callsign
-
-Built by **M0LZN** — 73 de James
+73 de **M0LZN**
