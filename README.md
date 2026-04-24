@@ -16,11 +16,18 @@ Built with React Native / Expo. Works fully offline for all coordinate conversio
 - Displays your position in all supported formats simultaneously
 - Copy any format to clipboard with a single tap
 
-### CONVERT
+### FIND
 - Search by coordinates, grid reference, place name, or any supported format
 - Auto-detects input format (Maidenhead, OS Grid, WAB, Plus Code, DMS, DDM, decimal degrees)
 - Place name search via OpenStreetMap Nominatim — no API key needed
 - Sets the result as your navigation target automatically
+
+### P2P
+- Point-to-point distance and bearing calculator
+- Enter two locations in any format — coordinates, grid reference, or place name
+- Displays distance, forward bearing, and return bearing
+- Swap button to reverse FROM/TO in one tap
+- Respects the distance unit set in CONFIG (km / miles)
 
 ### MAP
 - Interactive full-screen map
@@ -111,7 +118,8 @@ gridpointapp/
 ├── src/
 │   ├── screens/
 │   │   ├── HomeScreen.js           # LOCATE tab — GPS fix + all formats
-│   │   ├── ConvertScreen.js        # CONVERT tab — search and convert
+│   │   ├── ConvertScreen.js        # FIND tab — search and convert
+│   │   ├── P2PScreen.js            # P2P tab — point-to-point calculator
 │   │   ├── ARScreen.js             # AR tab — camera + bearing overlay
 │   │   ├── MapScreen.js            # MAP tab — interactive map
 │   │   └── SettingsScreen.js       # CONFIG tab — preferences

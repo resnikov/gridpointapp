@@ -108,7 +108,11 @@ export default function ARScreen({ navigation, route }) {
 
   // Compute distance, bearing, screen angle whenever location or heading changes
   useEffect(() => {
-    if (!userLocation || !target) return;
+    if (!userLocation || !target) {
+      setDistance(null);
+      setBearing(null);
+      return;
+    }
 
     const dist = haversineDistance(
       userLocation.latitude, userLocation.longitude,
@@ -224,10 +228,6 @@ export default function ARScreen({ navigation, route }) {
 
       {/* ── Info HUD top ── */}
       <View style={[styles.hud, styles.hudTop, { top: insets.top + 8 }]}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Text style={styles.backBtnText}>← BACK</Text>
-        </TouchableOpacity>
-
         <View style={styles.hudPanel}>
           <Text style={styles.hudLabel}>COMPASS</Text>
           <Text style={styles.hudValue}>{Math.round(heading)}°</Text>
@@ -508,22 +508,6 @@ const styles = StyleSheet.create({
     fontFamily: 'Courier',
   },
 
-  backBtn: {
-    flex: 1,
-    backgroundColor: colors.overlay,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radii.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    alignSelf: 'flex-start',
-  },
-  backBtnText: {
-    color: colors.textMid,
-    fontFamily: 'Courier',
-    fontSize: 11,
-    letterSpacing: 1.5,
-  },
 
   locationWarning: {
     position: 'absolute',

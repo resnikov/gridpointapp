@@ -110,14 +110,6 @@ return (
           <Text style={styles.logoText}>GRID</Text>
           <Text style={styles.logoAccent}>POINT</Text>
           <Text style={styles.logoSub}> · M0LZN</Text>
-          {target && (
-            <TouchableOpacity
-              style={styles.arBadge}
-              onPress={() => navigation.navigate('AR', { target })}
-            >
-              <Text style={styles.arBadgeText}>⌖ AR</Text>
-            </TouchableOpacity>
-          )}
         </View>
 
         <View style={styles.inputRow}>
@@ -281,20 +273,6 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     flex: 1,
     marginLeft: 4,
-  },
-  arBadge: {
-    backgroundColor: colors.amberGlow,
-    borderWidth: 1,
-    borderColor: colors.amber,
-    borderRadius: radii.sm,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  arBadgeText: {
-    color: colors.amber,
-    fontFamily: 'Courier',
-    fontSize: 10,
-    letterSpacing: 1.5,
   },
   inputRow: {
     flexDirection: 'row',

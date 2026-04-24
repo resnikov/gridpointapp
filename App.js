@@ -10,6 +10,7 @@ import ConvertScreen from './src/screens/ConvertScreen';
 import ARScreen from './src/screens/ARScreen';
 import MapScreen from './src/screens/MapScreen';
 import HomeScreen from './src/screens/HomeScreen';
+import P2PScreen from './src/screens/P2PScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import { colors } from './src/utils/theme';
 import { SettingsProvider } from './src/utils/SettingsContext';
@@ -18,11 +19,12 @@ const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
 const TAB_ICONS = {
-  'LOCATE':  '⊛',
-  'CONVERT': '⊕',
-  'AR':      '◎',
-  'MAP':     '▦',
-  'CONFIG':  '≡',
+  'LOCATE': '⊛',
+  'FIND':   '⊕',
+  'P2P':    '⇌',
+  'AR':     '◎',
+  'MAP':    '▦',
+  'CONFIG': '≡',
 };
 
 function TabIcon({ label, focused }) {
@@ -91,7 +93,8 @@ export default function App() {
             })}
           >
             <Tab.Screen name="LOCATE" component={HomeScreen} />
-            <Tab.Screen name="CONVERT" component={ConvertStack} />
+            <Tab.Screen name="FIND" component={ConvertStack} />
+            <Tab.Screen name="P2P" component={P2PScreen} />
             <Tab.Screen name="AR" component={ARScreen} />
             <Tab.Screen name="MAP" component={MapScreen} />
             <Tab.Screen name="CONFIG" component={SettingsScreen} />
